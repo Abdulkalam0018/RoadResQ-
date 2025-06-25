@@ -2,7 +2,6 @@ import react from "react";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import "./dashboard.css"; // Assuming you have a CSS file for styling
-import ReportIssue from "../reportissue/ReportIssue";
 const DashBoard = () => {
     const navigate = useNavigate();
     return (

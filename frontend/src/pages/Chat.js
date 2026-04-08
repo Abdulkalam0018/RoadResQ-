@@ -52,6 +52,8 @@ const Chat = () => {
       mountedRef.current = false;
       if (socketRef.current) {
         socketRef.current.off('new_message');
+        socketRef.current.off('message_sent');
+        socketRef.current.off('messages_read');
       }
     };
   }, []);
@@ -333,48 +335,42 @@ const Chat = () => {
       
       createNewChat();
     }
-  }, [userId, isMobile, isCreatingChat]); // Added isCreatingChat to dependencies
+  }, [userId, isMobile, isCreatingChat, chats]); // Keep chats in sync when creating/selecting conversations
 
   const handleSendMessage = async () => {
-  if (!newMessage.trim() || !selectedChat || !mountedRef.current) return;
+    if (!newMessage.trim() || !selectedChat || !mountedRef.current) return;
 
-  const messageData = {
-    chatId: selectedChat._id,
-    content: newMessage.trim(),
-  };
+    const messageData = {
+      chatId: selectedChat._id,
+      content: newMessage.trim(),
+    };
 
-  try {
-    // Send message via API
-    await chatAPI.sendMessage(messageData);
+    try {
+      const response = await chatAPI.sendMessage(messageData);
+      const sentMessage = response.data?.data;
 
-    if (mountedRef.current) {
-      setNewMessage(''); // Just clear input, don't add to state
+      if (mountedRef.current) {
+        setNewMessage('');
 
-      // Update chat's last message
-      setChats(prev => prev.map(chat =>
-        chat._id === selectedChat._id
-          ? { ...chat, lastMessage: messageData.content }
-          : chat
-      ));
-
-      // Emit via socket
-      if (socketRef.current && socketRef.current.connected) {
-        const otherParticipant = getOtherParticipant(selectedChat);
-        if (otherParticipant) {
-          socketRef.current.emit('send_message', {
-            chatId: selectedChat._id,
-            content: messageData.content,
-            receiverId: otherParticipant._id
+        if (sentMessage?._id) {
+          setMessages(prevMessages => {
+            const alreadyExists = prevMessages.some(message => message._id === sentMessage._id);
+            return alreadyExists ? prevMessages : [...prevMessages, sentMessage];
           });
         }
+
+        setChats(prevChats => prevChats.map(chat =>
+          chat._id === selectedChat._id
+            ? { ...chat, lastMessage: messageData.content }
+            : chat
+        ));
+      }
+    } catch (error) {
+      if (mountedRef.current) {
+        setError('Failed to send message');
       }
     }
-  } catch (error) {
-    if (mountedRef.current) {
-      setError('Failed to send message');
-    }
-  }
-};
+  };
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {

@@ -25,6 +25,10 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { mechanicsAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import {
+  getGeolocationErrorMessage,
+  requestCurrentPosition,
+} from '../utils/geolocation';
 
 const NearbyMechanics = () => {
   const { user } = useAuth();
@@ -35,6 +39,7 @@ const NearbyMechanics = () => {
   
   const [garages, setGarages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [locating, setLocating] = useState(false);
   const [error, setError] = useState('');
   const [searchParams, setSearchParams] = useState({
     lat: 0,
@@ -52,38 +57,6 @@ const NearbyMechanics = () => {
       cleanupRef.current = true;
     };
   }, []);
-
-  const getCurrentLocation = useCallback(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          if (!cleanupRef.current) {
-            const { latitude, longitude } = position.coords;
-            setSearchParams(prev => ({
-              ...prev,
-              lat: latitude,
-              lon: longitude,
-            }));
-            // Don't automatically search - let user click search button
-          }
-        },
-        (error) => {
-          if (!cleanupRef.current) {
-            console.error('Error getting location:', error);
-            setError('Unable to get your location. Please enter coordinates manually.');
-          }
-        }
-      );
-    } else {
-      if (!cleanupRef.current) {
-        setError('Geolocation is not supported by this browser.');
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    getCurrentLocation();
-  }, [getCurrentLocation]);
 
   const searchNearbyMechanics = useCallback(async (lat, lon, radius) => {
     if (cleanupRef.current) return;
@@ -109,6 +82,37 @@ const NearbyMechanics = () => {
   const handleSearch = () => {
     searchNearbyMechanics(searchParams.lat, searchParams.lon, searchParams.radius);
   };
+
+  const handleUseMyLocation = useCallback(async () => {
+    if (cleanupRef.current) return;
+
+    setError('');
+    setLocating(true);
+
+    try {
+      const position = await requestCurrentPosition();
+      if (cleanupRef.current) return;
+
+      const { latitude, longitude } = position.coords;
+
+      setSearchParams(prev => ({
+        ...prev,
+        lat: latitude,
+        lon: longitude,
+      }));
+
+      await searchNearbyMechanics(latitude, longitude, searchParams.radius);
+    } catch (locationError) {
+      if (!cleanupRef.current) {
+        console.error('Error getting location:', locationError);
+        setError(getGeolocationErrorMessage(locationError));
+      }
+    } finally {
+      if (!cleanupRef.current) {
+        setLocating(false);
+      }
+    }
+  }, [searchNearbyMechanics, searchParams.radius]);
 
   const handleRateGarage = useCallback(async (mechanicId, garageIndex, value) => {
     if (cleanupRef.current) return;
@@ -191,7 +195,7 @@ const NearbyMechanics = () => {
         </Typography>
         
         <Grid container spacing={{ xs: 2, sm: 3 }}>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <TextField
               fullWidth
               label="Latitude"
@@ -209,7 +213,7 @@ const NearbyMechanics = () => {
               }}
             />
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <TextField
               fullWidth
               label="Longitude"
@@ -227,7 +231,7 @@ const NearbyMechanics = () => {
               }}
             />
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <Box>
               <Typography 
                 variant="body2" 
@@ -255,7 +259,7 @@ const NearbyMechanics = () => {
               />
             </Box>
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <Box sx={{ 
               display: 'flex',
               flexDirection: 'column',
@@ -266,7 +270,7 @@ const NearbyMechanics = () => {
               <Button
                 variant="contained"
                 onClick={handleSearch}
-                disabled={loading}
+                disabled={loading || locating}
                 size={isMobile ? "medium" : "large"}
                 sx={{ 
                   fontSize: { xs: '0.875rem', sm: '1rem' },
@@ -278,32 +282,15 @@ const NearbyMechanics = () => {
               <Button
                 variant="outlined"
                 onClick={() => {
-                  if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(
-                      (position) => {
-                        const { latitude, longitude } = position.coords;
-                        setSearchParams(prev => ({
-                          ...prev,
-                          lat: latitude,
-                          lon: longitude,
-                        }));
-                        setError(''); // Clear any previous errors
-                      },
-                      (error) => {
-                        console.error('Error getting location:', error);
-                        setError('Unable to get your location. Please enter coordinates manually.');
-                      }
-                    );
-                  } else {
-                    setError('Geolocation is not supported by this browser.');
-                  }
+                  void handleUseMyLocation();
                 }}
+                disabled={locating || loading}
                 size={isMobile ? "small" : "medium"}
                 sx={{ 
                   fontSize: { xs: '0.875rem', sm: '1rem' }
                 }}
               >
-                Use My Location
+                {locating ? 'Getting Location...' : 'Use My Location'}
               </Button>
             </Box>
           </Grid>
@@ -347,7 +334,7 @@ const NearbyMechanics = () => {
             const uniqueKey = `${mechanic._id}-${mechanic.garageIndex || 0}`; // Use garageIndex from backend
             
             return (
-              <Grid item xs={12} sm={6} md={4} key={uniqueKey}>
+              <Grid size={{ xs: 12, sm: 6, md: 4 }} key={uniqueKey}>
                 <Card elevation={3} sx={{ 
                   height: '100%',
                   borderRadius: { xs: 2, sm: 3 },

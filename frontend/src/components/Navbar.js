@@ -42,6 +42,13 @@ const Navbar = () => {
   const [hasUnread, setHasUnread] = useState(false);
   const socketRef = useRef(null);
 
+  useEffect(() => {
+    cleanupRef.current = false;
+    return () => {
+      cleanupRef.current = true;
+    };
+  }, []);
+
   // Socket connection for real-time updates
   useEffect(() => {
     if (!user || cleanupRef.current) return;
@@ -65,7 +72,7 @@ const Navbar = () => {
                 if (chat._id === data.chat) {
                   // Increment unread count for current user if they're not the sender
                   const updatedChat = { ...chat };
-                  if (updatedChat.unreadCount && user._id && data.sender !== user._id) {
+                  if (updatedChat.unreadCount && user._id && data.message?.sender?._id !== user._id) {
                     const currentUnread = updatedChat.unreadCount.get ? 
                       updatedChat.unreadCount.get(user._id) || 0 : 
                       updatedChat.unreadCount[user._id] || 0;
@@ -216,7 +223,11 @@ const Navbar = () => {
               {user?.userType !== 'mechanic' && (
                 <Button color="inherit" onClick={() => navigate('/nearby-mechanics')} sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}>Search Mechanics</Button>
               )}
-              <Button color="inherit" onClick={() => navigate('/chat')} sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}>Messages</Button>
+              <Button color="inherit" onClick={() => navigate('/chat')} sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}>
+                <Badge color="error" variant="dot" invisible={!hasUnread}>
+                  <Box component="span">Messages</Box>
+                </Badge>
+              </Button>
               <Button color="inherit" onClick={() => navigate('/profile')} sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}>Profile</Button>
               <Button color="inherit" onClick={handleLogout} sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}>Logout</Button>
             </Box>

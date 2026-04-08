@@ -27,16 +27,28 @@ export const AuthProvider = ({ children }) => {
   const checkAuthStatus = async () => {
     try {
       const token = localStorage.getItem('accessToken');
-      if (token && mountedRef.current) {
-        const response = await authAPI.getCurrentUser();
+      if (!token) {
         if (mountedRef.current) {
-          setUser(response.data?.data || null);
+          setUser(null);
+        }
+        return;
+      }
+
+      if (mountedRef.current) {
+        const response = await authAPI.getCurrentUser();
+        const currentUser = response.data?.data || null;
+        setUser(currentUser);
+
+        if (currentUser?._id) {
+          const { initializeSocket } = await import('../services/socket.js');
+          initializeSocket(token, currentUser._id);
         }
       }
     } catch (error) {
       console.error('Auth check failed:', error);
       if (mountedRef.current) {
         localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
         setUser(null);
       }
     } finally {
@@ -56,17 +68,17 @@ export const AuthProvider = ({ children }) => {
   const login = async (credentials) => {
     try {
       const response = await authAPI.login(credentials);
-      const { accessToken, refreshToken } = response.data?.data || {};
+      const { user: loggedInUser, accessToken, refreshToken } = response.data?.data || {};
       
       if (mountedRef.current) {
         localStorage.setItem('accessToken', accessToken);
         localStorage.setItem('refreshToken', refreshToken);
-        setUser(response.data?.data || null);
+        setUser(loggedInUser || null);
         
         // Initialize socket connection after login
         try {
           const { initializeSocket } = await import('../services/socket.js');
-          initializeSocket(accessToken);
+          initializeSocket(accessToken, loggedInUser?._id);
         } catch (error) {
           console.log('Socket initialization failed:', error);
         }

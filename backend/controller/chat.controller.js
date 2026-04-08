@@ -6,6 +6,10 @@ import { Message } from "../models/message.model.js";
 import { User } from "../models/user.model.js";
 import mongoose from "mongoose";
 
+const isChatParticipant = (chat, userId) =>
+  Array.isArray(chat?.participants) &&
+  chat.participants.some((participantId) => participantId?.toString() === userId?.toString());
+
 // Get or create a chat between two users
 export const getOrCreateChat = asyncHandler(async (req, res) => {
   const { userId } = req.params;
@@ -74,7 +78,7 @@ export const getChatMessages = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Chat not found");
   }
 
-  if (!chat.participants.includes(req.user._id)) {
+  if (!isChatParticipant(chat, req.user._id)) {
     throw new ApiError(403, "You are not authorized to access this chat");
   }
 
@@ -130,7 +134,7 @@ export const sendMessage = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Chat not found");
   }
 
-  if (!chat.participants.includes(req.user._id)) {
+  if (!isChatParticipant(chat, req.user._id)) {
     throw new ApiError(403, "You are not authorized to send messages in this chat");
   }
 
@@ -184,7 +188,7 @@ export const markMessagesAsRead = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Chat not found");
   }
 
-  if (!chat.participants.includes(req.user._id)) {
+  if (!isChatParticipant(chat, req.user._id)) {
     throw new ApiError(403, "You are not authorized to access this chat");
   }
 

@@ -1,18 +1,27 @@
-import io from 'socket.io-client';
+import { io } from 'socket.io-client';
 
 let socket = null;
 
+const getSocketUrl = () =>
+  (process.env.REACT_APP_SOCKET_URL || process.env.REACT_APP_API_URL || 'http://localhost:9000')
+    .replace(/\/api\/v1$/, '')
+    .replace(/\/$/, '');
+
 export const initializeSocket = (token, userId) => {
+  if (!token) {
+    return null;
+  }
+
   if (socket) {
     socket.disconnect();
   }
 
-  socket = io('https://project-r84n.onrender.com', {
+  socket = io(getSocketUrl(), {
     auth: {
-      token: token
+      token,
     },
     withCredentials: true,
-    transports: ['websocket'],
+    transports: ['websocket', 'polling'],
   });
 
   socket.on('connect', () => {
@@ -44,9 +53,3 @@ export const disconnectSocket = () => {
     socket = null;
   }
 };
-
-// Auto-initialize socket if token is available
-const token = localStorage.getItem('accessToken');
-if (token) {
-  initializeSocket(token);
-} 

@@ -7,11 +7,12 @@ import {
   Grid,
   Button,
   Chip,
-  Avatar,
+  FormControlLabel,
   Divider,
   TextField,
   Alert,
   Rating,
+  Switch,
   useTheme,
   useMediaQuery,
 } from '@mui/material';
@@ -21,6 +22,11 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { mechanicsAPI, userAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
+import AIRoadsideAssistant from '../components/AIRoadsideAssistant';
+import {
+  getGeolocationErrorMessage,
+  requestCurrentPosition,
+} from '../utils/geolocation';
 
 const Dashboard = () => {
   const { user } = useAuth();
@@ -38,7 +44,12 @@ const Dashboard = () => {
   const [garageSuccess, setGarageSuccess] = useState('');
   const [garageError, setGarageError] = useState('');
   const [loadingGarages, setLoadingGarages] = useState(false);
+  const [locatingGarage, setLocatingGarage] = useState(false);
   const [deletingIndex, setDeletingIndex] = useState(null);
+  const [isAvailable, setIsAvailable] = useState(Boolean(user?.isAvailable));
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [availabilityMessage, setAvailabilityMessage] = useState('');
+  const [availabilityError, setAvailabilityError] = useState('');
 
   // Cleanup function to prevent state updates after unmount
   useEffect(() => {
@@ -68,29 +79,32 @@ const Dashboard = () => {
 
   const handleUseMyLocation = useCallback(() => {
     if (cleanupRef.current) return;
-    
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          if (!cleanupRef.current) {
-            setGarageForm((prev) => ({
-              ...prev,
-              location: [position.coords.longitude, position.coords.latitude]
-            }));
-          }
-        },
-        (error) => {
-          if (!cleanupRef.current) {
-            console.error('Error getting location:', error);
-            setGarageError('Unable to get your location. Please enter manually.');
-          }
+
+    setGarageError('');
+    setGarageSuccess('');
+    setLocatingGarage(true);
+
+    requestCurrentPosition()
+      .then((position) => {
+        if (!cleanupRef.current) {
+          setGarageForm((prev) => ({
+            ...prev,
+            location: [position.coords.longitude, position.coords.latitude]
+          }));
+          setGarageSuccess('Current location added to the garage form.');
         }
-      );
-    } else {
-      if (!cleanupRef.current) {
-        setGarageError('Geolocation is not supported by this browser.');
-      }
-    }
+      })
+      .catch((locationError) => {
+        if (!cleanupRef.current) {
+          console.error('Error getting location:', locationError);
+          setGarageError(getGeolocationErrorMessage(locationError));
+        }
+      })
+      .finally(() => {
+        if (!cleanupRef.current) {
+          setLocatingGarage(false);
+        }
+      });
   }, []);
 
   const fetchGarages = useCallback(async () => {
@@ -118,6 +132,34 @@ const Dashboard = () => {
       fetchGarages();
     }
   }, [user, fetchGarages]);
+
+  useEffect(() => {
+    if (!cleanupRef.current) {
+      setIsAvailable(Boolean(user?.isAvailable));
+    }
+  }, [user?.isAvailable]);
+
+  useEffect(() => {
+    const handleAssistantAction = (event) => {
+      if (cleanupRef.current) return;
+
+      const action = event.detail;
+      if (!action?.type) return;
+
+      if (action.type === 'navigate' && action.path) {
+        navigate(action.path);
+      }
+
+      if (action.type === 'open_garage_manager') {
+        setShowGaragePage(true);
+      }
+    };
+
+    window.addEventListener('roadresq:assistant-action', handleAssistantAction);
+    return () => {
+      window.removeEventListener('roadresq:assistant-action', handleAssistantAction);
+    };
+  }, [navigate]);
 
   const handleGarageSubmit = useCallback(async (e) => {
     e.preventDefault();
@@ -162,43 +204,30 @@ const Dashboard = () => {
     }
   }, []);
 
-  const handleRateGarage = useCallback(async (garageIndex, value) => {
+  const handleAvailabilityChange = useCallback(async (event) => {
     if (cleanupRef.current) return;
-    
-    setGarageSuccess('');
-    setGarageError('');
+
+    const nextValue = event.target.checked;
+    setAvailabilityLoading(true);
+    setAvailabilityMessage('');
+    setAvailabilityError('');
+
     try {
-      const response = await mechanicsAPI.rateGarage(user?._id, garageIndex, value);
+      const response = await mechanicsAPI.updateAvailability(nextValue);
       if (!cleanupRef.current) {
-        setGarageSuccess('Rating submitted!');
-        
-        // Update the garage rating in the UI without refreshing the whole list
-        if (response.data && response.data.data) {
-          const { averageRating, totalRatings } = response.data.data;
-          setGarages(prevGarages => {
-            if (cleanupRef.current) return prevGarages;
-            
-            return prevGarages.map((garage, idx) => {
-              if (idx === garageIndex) {
-                return {
-                  ...garage,
-                  averageRating,
-                  ratings: garage.ratings ? 
-                    [...garage.ratings] : 
-                    Array(totalRatings).fill({ value: 0 })
-                };
-              }
-              return garage;
-            });
-          });
-        }
+        setIsAvailable(Boolean(response.data?.data?.isAvailable));
+        setAvailabilityMessage(`Availability is now ${response.data?.data?.isAvailable ? 'ON' : 'OFF'}.`);
       }
     } catch (error) {
       if (!cleanupRef.current) {
-        setGarageError(error.response?.data?.message || 'Failed to submit rating');
+        setAvailabilityError(error.response?.data?.message || 'Failed to update availability');
+      }
+    } finally {
+      if (!cleanupRef.current) {
+        setAvailabilityLoading(false);
       }
     }
-  }, [user?._id]);
+  }, []);
 
   if (!user) {
     return (
@@ -225,20 +254,45 @@ const Dashboard = () => {
         >
           Welcome, {user.fullName}!
         </Typography>
-        <Button
-          variant="contained"
-          size={isMobile ? "large" : "large"}
-          color="primary"
-          sx={{ 
-            mt: { xs: 2, sm: 4 },
-            fontSize: { xs: '1rem', sm: '1.1rem' },
-            py: { xs: 1.5, sm: 2 },
-            px: { xs: 3, sm: 4 }
-          }}
-          onClick={() => navigate('/nearby-mechanics')}
-        >
-          Search Nearby Garage
-        </Button>
+        <Box sx={{ 
+          mt: { xs: 2, sm: 4 },
+          display: 'flex',
+          flexDirection: { xs: 'column', sm: 'row' },
+          justifyContent: 'center',
+          gap: 2
+        }}>
+          <Button
+            variant="contained"
+            size={isMobile ? "large" : "large"}
+            color="primary"
+            sx={{ 
+              fontSize: { xs: '1rem', sm: '1.1rem' },
+              py: { xs: 1.5, sm: 2 },
+              px: { xs: 3, sm: 4 }
+            }}
+            onClick={() => navigate('/nearby-mechanics')}
+          >
+            Search Nearby Garage
+          </Button>
+          <Button
+            variant="outlined"
+            size={isMobile ? "large" : "large"}
+            sx={{ 
+              fontSize: { xs: '1rem', sm: '1.1rem' },
+              py: { xs: 1.5, sm: 2 },
+              px: { xs: 3, sm: 4 }
+            }}
+            onClick={() => navigate('/chat')}
+          >
+            Open Messages
+          </Button>
+        </Box>
+
+        <Card elevation={2} sx={{ mt: 4, textAlign: 'left', maxWidth: 960, mx: 'auto' }}>
+          <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+            <AIRoadsideAssistant />
+          </CardContent>
+        </Card>
       </Box>
     );
   }
@@ -290,19 +344,31 @@ const Dashboard = () => {
               </Box>
 
               {user.userType === 'mechanic' && (
-                <Button
-                  variant="contained"
-                  color="primary"
-                  fullWidth
-                  sx={{ 
-                    mt: 2,
-                    fontSize: { xs: '0.875rem', sm: '1rem' },
-                    py: { xs: 1, sm: 1.5 }
-                  }}
-                  onClick={() => setShowGaragePage(true)}
-                >
-                  Add Garage
-                </Button>
+                <Box sx={{ mt: 2 }}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={isAvailable}
+                        onChange={handleAvailabilityChange}
+                        disabled={availabilityLoading}
+                      />
+                    }
+                    label={availabilityLoading ? 'Updating availability...' : `Availability ${isAvailable ? 'ON' : 'OFF'}`}
+                  />
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    fullWidth
+                    sx={{ 
+                      mt: 1,
+                      fontSize: { xs: '0.875rem', sm: '1rem' },
+                      py: { xs: 1, sm: 1.5 }
+                    }}
+                    onClick={() => setShowGaragePage(true)}
+                  >
+                    Add Garage
+                  </Button>
+                </Box>
               )}
             </CardContent>
           </Card>
@@ -313,6 +379,16 @@ const Dashboard = () => {
           {user.userType === 'mechanic' && showGaragePage ? (
             <Card elevation={2}>
               <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+                {availabilityMessage && (
+                  <Alert severity="success" sx={{ mb: 2 }}>
+                    {availabilityMessage}
+                  </Alert>
+                )}
+                {availabilityError && (
+                  <Alert severity="error" sx={{ mb: 2 }}>
+                    {availabilityError}
+                  </Alert>
+                )}
                 <Typography 
                   variant={isMobile ? "h6" : "h6"} 
                   gutterBottom
@@ -413,12 +489,13 @@ const Dashboard = () => {
                       variant="outlined"
                       onClick={handleUseMyLocation}
                       type="button"
+                      disabled={locatingGarage}
                       size={isMobile ? "small" : "medium"}
                       sx={{ 
                         fontSize: { xs: '0.875rem', sm: '1rem' }
                       }}
                     >
-                      Use My Location
+                      {locatingGarage ? 'Getting Location...' : 'Use My Location'}
                     </Button>
                     <Button
                       type="submit"
@@ -542,6 +619,16 @@ const Dashboard = () => {
           ) : (
             <Card elevation={2}>
               <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+                {availabilityMessage && (
+                  <Alert severity="success" sx={{ mb: 2 }}>
+                    {availabilityMessage}
+                  </Alert>
+                )}
+                {availabilityError && (
+                  <Alert severity="error" sx={{ mb: 2 }}>
+                    {availabilityError}
+                  </Alert>
+                )}
                 <Typography 
                   variant={isMobile ? "h6" : "h6"} 
                   gutterBottom
@@ -648,6 +735,13 @@ const Dashboard = () => {
               </CardContent>
             </Card>
           )}
+        </Grid>
+        <Grid item xs={12}>
+          <Card elevation={2}>
+            <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+              <AIRoadsideAssistant />
+            </CardContent>
+          </Card>
         </Grid>
       </Grid>
     </Box>

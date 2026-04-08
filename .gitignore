@@ -78,10 +78,31 @@ web_modules/
 
 # dotenv environment variable files
 .env
+.env.*
 .env.development.local
 .env.test.local
 .env.production.local
 .env.local
+!.env.example
+!.env.*.example
+
+# Secret and credential files
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+serviceAccount*.json
+firebase-admin*.json
+secret.*
+secrets.*
+credentials.*
+credential.*
+*.secret
+*.secrets.*
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache

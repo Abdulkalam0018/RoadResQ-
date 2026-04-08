@@ -2,11 +2,13 @@
   "name": "RoadresQ-backend",
   "version": "1.0.0",
   "description": "backend for RoadresQ",
-  "main": "index.js",
+  "main": "backend/index.js",
   "type": "module",
   "scripts": {
-    "dev": "nodemon src/index.js",
-    "start": "node src/index.js"
+    "dev": "node scripts/dev.js",
+    "start": "node backend/index.js",
+    "backend:dev": "nodemon backend/index.js",
+    "frontend:dev": "npm start --prefix frontend"
   },
   "author": "",
   "license": "ISC",

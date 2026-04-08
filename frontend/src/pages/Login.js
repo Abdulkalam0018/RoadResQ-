@@ -1,11 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Paper,
   Typography,
   TextField,
   Button,
-  Alert,
   Link,
   useTheme,
   useMediaQuery,
@@ -28,6 +27,13 @@ const Login = () => {
   const [error, setError] = useState('');
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    cleanupRef.current = false;
+    return () => {
+      cleanupRef.current = true;
+    };
+  }, []);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;

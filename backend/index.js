@@ -9,10 +9,13 @@ import jwt from 'jsonwebtoken'
 import cookie from 'cookie'
 
 const httpServer = createServer(app)
+const allowedOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
+    : ['http://localhost:3000', 'http://localhost:3001']
 
 const io = new Server(httpServer, {
     cors: {
-        origin: process.env.CORS_ORIGIN || "http://localhost:5273",
+        origin: allowedOrigins,
         credentials: true
     },
     pingTimeout: 60000, 
@@ -24,7 +27,10 @@ io.use(async (socket, next) => {
     try {
         // Get cookies from handshake headers
         const cookies = cookie.parse(socket.handshake.headers.cookie || '')
-        const accessToken = cookies.accessToken
+        const accessToken =
+            cookies.accessToken ||
+            socket.handshake.auth?.token ||
+            socket.handshake.headers?.authorization?.replace('Bearer ', '')
 
         if (!accessToken) {
             return next(new ApiError(401, "Authentication error: No token provided"))

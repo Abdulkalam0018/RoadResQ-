@@ -53,10 +53,12 @@ app.get('/api/v1', (req, res) => {
 import userRouter from "./routes/user.routes.js"
 import mechanicRouter from "./routes/mechanic.routes.js"
 import chatRouter from "./routes/chat.routes.js"
+import aiRouter from "./routes/ai.routes.js"
 
 app.use("/api/v1/users", userRouter)
 app.use("/api/v1/mechanics", mechanicRouter)
 app.use("/api/v1/chats", chatRouter)
+app.use("/api/v1/ai", aiRouter)
 
 // 404 handler for undefined routes
 app.use('*', (req, res) => {

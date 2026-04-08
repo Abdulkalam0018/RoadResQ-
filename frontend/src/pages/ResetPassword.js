@@ -80,7 +80,7 @@ const ResetPassword = () => {
     setSuccess('');
 
     try {
-      const response = await authAPI.resetPassword({
+      await authAPI.resetPassword({
         token,
         password: formData.password,
       });

@@ -6,7 +6,6 @@ import { uploadOnCloudinary, deleteFromCloudinary } from "../utils/cloudinary.js
 import mongoose from "mongoose";
 import jwt from "jsonwebtoken";
 import sendEmail from "../utils/sendEmail.js";
-import { io } from '../index.js'; // Import io for socket events (use require to avoid circular import issues)
 import crypto from "crypto";
 
 const registerUser = asyncHandler(async(req, res) => {
@@ -138,8 +137,8 @@ const generateAccessAndRefreshToken = async(userId) => {
 
 const secureCookieWithExpiry = {
     httpOnly: true,
-    secure: true,
-    sameSite: 'strict',
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30) // 30 days
 }
 
@@ -178,7 +177,11 @@ const loginUser = asyncHandler(async(req, res) => {
     .json(
         new ApiResponse(
             200,
-            loggedInUser,
+            {
+                user: loggedInUser,
+                accessToken,
+                refreshToken
+            },
             "user logged in successfully"
         )
     )
@@ -199,8 +202,8 @@ const logoutUser = asyncHandler(async(req, res) => {
 
     const secureCookie = {
         httpOnly: true,
-        secure: true,
-        sameSite: 'strict',
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     }
 
     return res
@@ -415,7 +418,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
     )
     
     // For frontend reset page
-    const resetURL = `${req.protocol}://${req.get("host")}/reset-password?token=${resetToken}`
+    const resetURL = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`
 
     const message = `Forgot your password? Click here to generate a new password: ${resetURL}\nIf you didn't request a password reset, please ignore this email.`;
 
@@ -618,6 +621,7 @@ const addOrUpdateGarage = asyncHandler(async (req, res) => {
 
     // Emit socket event to all users about the updated garages
     try {
+        const { io } = await import('../index.js');
         io.emit('garagesUpdated', {
             mechanicId: user._id,
             garages: user.garages,
@@ -652,6 +656,7 @@ const deleteGarage = asyncHandler(async (req, res) => {
     await user.save({ validateBeforeSave: false });
     // Emit socket event to all users about the updated garages
     try {
+        const { io } = await import('../index.js');
         io.emit('garagesUpdated', {
             mechanicId: user._id,
             garages: user.garages,

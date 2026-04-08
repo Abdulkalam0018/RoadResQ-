@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-const API_BASE_URL = `${process.env.REACT_APP_API_URL}/api/v1`;
-
+const API_ROOT = (process.env.REACT_APP_API_URL || 'http://localhost:9000').replace(/\/$/, '');
+const API_BASE_URL = `${API_ROOT}/api/v1`;
 
 // Create axios instance
 const api = axios.create({
@@ -77,6 +77,10 @@ export const chatAPI = {
   createChat: (participantId) => api.post('/chats', { participantId }),
   markAsRead: (chatId) => api.post(`/chats/${chatId}/mark-read`),
   getOrCreateChat: (userId) => api.get(`/chats/user/${userId}`),
+};
+
+export const aiAPI = {
+  ask: (query) => api.post('/ai/ask', { query }),
 };
 
 export default api;

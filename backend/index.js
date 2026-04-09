@@ -7,15 +7,13 @@ import { User } from './models/user.model.js'
 import { ApiError } from './utils/ApiError.js';
 import jwt from 'jsonwebtoken'
 import cookie from 'cookie'
+import { getAllowedOriginsForSocket } from './utils/corsOrigins.js'
 
 const httpServer = createServer(app)
-const allowedOrigins = process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
-    : ['http://localhost:3000', 'http://localhost:3001']
 
 const io = new Server(httpServer, {
     cors: {
-        origin: allowedOrigins,
+        origin: getAllowedOriginsForSocket(),
         credentials: true
     },
     pingTimeout: 60000, 

@@ -52,6 +52,18 @@ const garageRequestSchema = new Schema(
     respondedAt: {
       type: Date,
     },
+    liveLocation: {
+      type: {
+        type: String,
+        enum: ['Point'],
+      },
+      coordinates: {
+        type: [Number],
+      },
+    },
+    liveLocationUpdatedAt: {
+      type: Date,
+    },
   },
   { timestamps: true },
 );

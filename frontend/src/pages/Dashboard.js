@@ -29,6 +29,28 @@ import {
   requestCurrentPosition,
 } from '../utils/geolocation';
 
+const getTrackingPositions = (mechanicLocation, requestLocation) => {
+  if (!Array.isArray(requestLocation) || requestLocation.length !== 2) {
+    return { mechanic: { left: '50%', top: '50%' }, customer: null };
+  }
+
+  const [mechanicLongitude, mechanicLatitude] = mechanicLocation;
+  const [customerLongitude, customerLatitude] = requestLocation;
+  const longitudeRange = Math.max(Math.abs(mechanicLongitude - customerLongitude), 0.001);
+  const latitudeRange = Math.max(Math.abs(mechanicLatitude - customerLatitude), 0.001);
+  const padding = 20;
+  const mechanicLeft = mechanicLongitude >= customerLongitude ? 100 - padding : padding;
+  const mechanicTop = mechanicLatitude >= customerLatitude ? padding : 100 - padding;
+  const customerLeft = mechanicLeft === padding ? 100 - padding : padding;
+  const customerTop = mechanicTop === padding ? 100 - padding : padding;
+
+  return {
+    mechanic: { left: `${mechanicLeft}%`, top: `${mechanicTop}%` },
+    customer: { left: `${customerLeft}%`, top: `${customerTop}%` },
+    distanceScale: Math.max(longitudeRange, latitudeRange),
+  };
+};
+
 const Dashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -57,6 +79,8 @@ const Dashboard = () => {
   const [requestEtas, setRequestEtas] = useState({});
   const [requestResponseLoading, setRequestResponseLoading] = useState({});
   const [requestResponseError, setRequestResponseError] = useState('');
+  const [trackingLocations, setTrackingLocations] = useState({});
+  const [trackingError, setTrackingError] = useState('');
 
   // Cleanup function to prevent state updates after unmount
   useEffect(() => {
@@ -165,7 +189,19 @@ const Dashboard = () => {
     try {
       const response = await mechanicsAPI.getMyGarageRequests();
       if (!cleanupRef.current) {
-        setHelpRequests(response.data?.data || []);
+        const requests = response.data?.data || [];
+        setHelpRequests(requests);
+        setTrackingLocations(
+          requests.reduce((locations, request) => {
+            if (request.liveLocation?.coordinates) {
+              locations[request._id] = {
+                location: request.liveLocation.coordinates,
+                updatedAt: request.liveLocationUpdatedAt,
+              };
+            }
+            return locations;
+          }, {})
+        );
       }
     } catch (error) {
       if (!cleanupRef.current) {
@@ -229,6 +265,18 @@ const Dashboard = () => {
       );
     };
 
+    const handleLocationUpdate = (update) => {
+      if (cleanupRef.current) return;
+
+      setTrackingLocations((current) => ({
+        ...current,
+        [update.requestId]: {
+          location: update.location,
+          updatedAt: update.updatedAt,
+        },
+      }));
+    };
+
     const subscribe = () => {
       socket = getSocket();
       if (!socket) {
@@ -237,14 +285,61 @@ const Dashboard = () => {
       }
 
       socket.on('garage_request_updated', handleGarageRequestUpdate);
+      socket.on('garage_request_location_updated', handleLocationUpdate);
     };
 
     subscribe();
     return () => {
       if (retryTimer) window.clearTimeout(retryTimer);
       socket?.off('garage_request_updated', handleGarageRequestUpdate);
+      socket?.off('garage_request_location_updated', handleLocationUpdate);
     };
   }, [user?.userType]);
+
+  useEffect(() => {
+    if (user?.userType !== 'mechanic') return undefined;
+
+    const activeRequestIds = garageRequests
+      .filter((request) => request.status === 'accepted')
+      .map((request) => request._id || request.requestId)
+      .filter(Boolean);
+
+    if (activeRequestIds.length === 0) return undefined;
+
+    if (!navigator.geolocation) {
+      setTrackingError('Live location sharing is not supported by this browser.');
+      return undefined;
+    }
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const socket = getSocket();
+        if (!socket) return;
+
+        setTrackingError('');
+        const location = [position.coords.longitude, position.coords.latitude];
+        activeRequestIds.forEach((requestId) => {
+          socket.emit('share_garage_request_location', { requestId, location });
+        });
+      },
+      (error) => {
+        if (!cleanupRef.current) {
+          setTrackingError(
+            error.code === 1
+              ? 'Allow location access to share your live position with the customer.'
+              : 'Unable to update your live location right now.'
+          );
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 5000,
+        timeout: 10000,
+      }
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [garageRequests, user?.userType]);
 
   useEffect(() => {
     if (!cleanupRef.current) {
@@ -455,7 +550,16 @@ const Dashboard = () => {
               </Typography>
             ) : (
               helpRequests.map((request) => {
+                const requestId = request._id || request.requestId;
                 const mechanic = request.mechanic || {};
+                const liveTracking =
+                  trackingLocations[requestId] ||
+                  (request.liveLocation?.coordinates
+                    ? {
+                        location: request.liveLocation.coordinates,
+                        updatedAt: request.liveLocationUpdatedAt,
+                      }
+                    : null);
                 const statusColor =
                   request.status === 'accepted'
                     ? 'success'
@@ -484,6 +588,53 @@ const Dashboard = () => {
                       <Typography variant="caption" color="text.secondary">
                         Request: {request.description}
                       </Typography>
+                      {request.status === 'accepted' && (
+                        <Box sx={{ mt: 2 }}>
+                          <Typography variant="subtitle2" color="success.main">
+                            Live mechanic tracking
+                          </Typography>
+                          {liveTracking?.location ? (() => {
+                            const positions = getTrackingPositions(
+                              liveTracking.location,
+                              request.location?.coordinates
+                            );
+                            return (
+                              <>
+                                <Box
+                                  sx={{
+                                    position: 'relative',
+                                    height: 180,
+                                    mt: 1,
+                                    overflow: 'hidden',
+                                    borderRadius: 2,
+                                    backgroundColor: 'primary.50',
+                                    backgroundImage: 'linear-gradient(90deg, rgba(25, 118, 210, 0.13) 1px, transparent 1px), linear-gradient(rgba(25, 118, 210, 0.13) 1px, transparent 1px)',
+                                    backgroundSize: '24px 24px',
+                                  }}
+                                >
+                                  {positions.customer && (
+                                    <Box sx={{ position: 'absolute', ...positions.customer, transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
+                                      <LocationOn color="error" />
+                                      <Typography variant="caption" display="block">You</Typography>
+                                    </Box>
+                                  )}
+                                  <Box sx={{ position: 'absolute', ...positions.mechanic, transform: 'translate(-50%, -50%)', textAlign: 'center', transition: 'left 1s ease, top 1s ease' }}>
+                                    <LocationOn color="success" />
+                                    <Typography variant="caption" display="block">Mechanic</Typography>
+                                  </Box>
+                                </Box>
+                                <Typography variant="caption" color="text.secondary">
+                                  Live position updated {liveTracking.updatedAt ? new Date(liveTracking.updatedAt).toLocaleTimeString() : 'just now'}
+                                </Typography>
+                              </>
+                            );
+                          })() : (
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                              Waiting for the mechanic to begin live location sharing.
+                            </Typography>
+                          )}
+                        </Box>
+                      )}
                     </CardContent>
                   </Card>
                 );
@@ -850,6 +1001,11 @@ const Dashboard = () => {
                     {requestResponseError}
                   </Alert>
                 )}
+                {trackingError && (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    {trackingError}
+                  </Alert>
+                )}
                 <Typography variant={isMobile ? "h6" : "h6"} gutterBottom>
                   Incoming Requests
                 </Typography>
@@ -911,6 +1067,30 @@ const Dashboard = () => {
                               >
                                 Decline
                               </Button>
+                            </Box>
+                          ) : request.status === 'accepted' ? (
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mt: 1.5 }}>
+                              <TextField
+                                label="ETA (minutes)"
+                                type="number"
+                                size="small"
+                                value={requestEtas[requestId] ?? request.estimatedArrivalMinutes}
+                                onChange={(event) => setRequestEtas((current) => ({
+                                  ...current,
+                                  [requestId]: event.target.value,
+                                }))}
+                                inputProps={{ min: 1, max: 1440 }}
+                                disabled={requestResponseLoading[requestId]}
+                              />
+                              <Button
+                                variant="contained"
+                                size="small"
+                                disabled={requestResponseLoading[requestId]}
+                                onClick={() => handleGarageRequestResponse(request, 'accepted')}
+                              >
+                                Update ETA
+                              </Button>
+                              <Chip color="success" size="small" label="Live location sharing on" />
                             </Box>
                           ) : (
                             <Chip

@@ -186,7 +186,11 @@ export const updateGarageRequestStatus = asyncHandler(async (req, res) => {
     throw new ApiError(404, 'Garage request not found');
   }
 
-  if (request.status !== 'pending' && status !== 'completed') {
+  if (
+    request.status === 'declined' ||
+    request.status === 'completed' ||
+    (request.status === 'accepted' && status === 'declined')
+  ) {
     throw new ApiError(409, 'This garage request has already been handled');
   }
 

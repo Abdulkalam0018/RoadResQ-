@@ -196,6 +196,60 @@ connectDB()
         console.error('Server error:', error);
         process.exit(1);
     });
+
+    socket.on("share_garage_request_location", async (data) => {
+        try {
+            const { requestId, location } = data || {};
+            const isValidLocation =
+                Array.isArray(location) &&
+                location.length === 2 &&
+                location.every((coordinate) => Number.isFinite(coordinate)) &&
+                location[0] >= -180 &&
+                location[0] <= 180 &&
+                location[1] >= -90 &&
+                location[1] <= 90;
+
+            if (!requestId || !isValidLocation) {
+                throw new Error("A valid request ID and location are required");
+            }
+
+            if (socket.user.userType !== "mechanic") {
+                throw new Error("Only mechanics can share live locations");
+            }
+
+            const { GarageRequest } = await import(
+                "./models/garageRequest.model.js"
+            );
+            const request = await GarageRequest.findOneAndUpdate(
+                {
+                    _id: requestId,
+                    mechanic: socket.user._id,
+                    status: "accepted",
+                },
+                {
+                    liveLocation: { type: "Point", coordinates: location },
+                    liveLocationUpdatedAt: new Date(),
+                },
+                { new: true }
+            );
+
+            if (!request) {
+                throw new Error("Accepted garage request not found");
+            }
+
+            io.to(request.requester.toString()).emit(
+                "garage_request_location_updated",
+                {
+                    requestId: request._id.toString(),
+                    location: request.liveLocation.coordinates,
+                    updatedAt: request.liveLocationUpdatedAt.toISOString(),
+                }
+            );
+        } catch (error) {
+            console.error("Error sharing garage request location:", error);
+            socket.emit("garage_request_location_error", error.message);
+        }
+    });
 })
 .catch((error) => {
     console.error("Connection error in DB", error);

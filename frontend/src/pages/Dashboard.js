@@ -21,6 +21,7 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { mechanicsAPI, userAPI } from '../services/api';
+import { getSocket } from '../services/socket';
 import { useNavigate } from 'react-router-dom';
 import AIRoadsideAssistant from '../components/AIRoadsideAssistant';
 import {
@@ -50,6 +51,8 @@ const Dashboard = () => {
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [availabilityMessage, setAvailabilityMessage] = useState('');
   const [availabilityError, setAvailabilityError] = useState('');
+  const [garageRequests, setGarageRequests] = useState([]);
+  const [requestNotice, setRequestNotice] = useState('');
 
   // Cleanup function to prevent state updates after unmount
   useEffect(() => {
@@ -132,6 +135,58 @@ const Dashboard = () => {
       fetchGarages();
     }
   }, [user, fetchGarages]);
+
+  const fetchGarageRequests = useCallback(async () => {
+    if (cleanupRef.current || user?.userType !== 'mechanic') return;
+
+    try {
+      const response = await mechanicsAPI.getIncomingGarageRequests();
+      if (!cleanupRef.current) {
+        setGarageRequests(response.data?.data || []);
+      }
+    } catch (error) {
+      if (!cleanupRef.current) {
+        console.error('Failed to fetch incoming garage requests:', error);
+      }
+    }
+  }, [user?.userType]);
+
+  useEffect(() => {
+    void fetchGarageRequests();
+  }, [fetchGarageRequests]);
+
+  useEffect(() => {
+    if (user?.userType !== 'mechanic') return undefined;
+
+    let socket;
+    let retryTimer;
+
+    const handleGarageRequest = (request) => {
+      if (cleanupRef.current) return;
+
+      setGarageRequests((current) => [
+        request,
+        ...current.filter((item) => (item._id || item.requestId) !== request.requestId),
+      ]);
+      setRequestNotice(`New request from ${request.requester?.fullName || 'a customer'} for ${request.garageName}.`);
+    };
+
+    const subscribe = () => {
+      socket = getSocket();
+      if (!socket) {
+        retryTimer = window.setTimeout(subscribe, 100);
+        return;
+      }
+
+      socket.on('garage_request_received', handleGarageRequest);
+    };
+
+    subscribe();
+    return () => {
+      if (retryTimer) window.clearTimeout(retryTimer);
+      socket?.off('garage_request_received', handleGarageRequest);
+    };
+  }, [user?.userType]);
 
   useEffect(() => {
     if (!cleanupRef.current) {
@@ -636,7 +691,46 @@ const Dashboard = () => {
                 >
                   Mechanic Dashboard
                 </Typography>
-                {/* Mechanic-specific content here */}
+                {requestNotice && (
+                  <Alert severity="info" onClose={() => setRequestNotice('')} sx={{ mb: 2 }}>
+                    {requestNotice}
+                  </Alert>
+                )}
+                <Typography variant={isMobile ? "h6" : "h6"} gutterBottom>
+                  Incoming Requests
+                </Typography>
+                {garageRequests.length === 0 ? (
+                  <Typography color="text.secondary" sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}>
+                    No incoming requests yet.
+                  </Typography>
+                ) : (
+                  garageRequests.map((request) => {
+                    const requestId = request._id || request.requestId;
+                    const requester = request.requester || {};
+                    return (
+                      <Card key={requestId} variant="outlined" sx={{ mb: 1.5 }}>
+                        <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
+                          <Typography variant="subtitle1" fontWeight="bold">
+                            {request.garageName}
+                          </Typography>
+                          <Typography variant="body2">
+                            {requester.fullName || requester.username || 'Customer'}: {request.description}
+                          </Typography>
+                          {request.location?.coordinates && (
+                            <Typography variant="caption" color="text.secondary">
+                              Location: {request.location.coordinates[1].toFixed(4)}, {request.location.coordinates[0].toFixed(4)}
+                            </Typography>
+                          )}
+                          {Array.isArray(request.location) && (
+                            <Typography variant="caption" color="text.secondary">
+                              Location: {request.location[1].toFixed(4)}, {request.location[0].toFixed(4)}
+                            </Typography>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })
+                )}
                 <Divider sx={{ my: 3 }} />
                 <Typography 
                   variant={isMobile ? "h6" : "h6"} 

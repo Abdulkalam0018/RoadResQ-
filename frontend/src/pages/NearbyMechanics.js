@@ -12,6 +12,10 @@ import {
   Rating,
   Alert,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Paper,
   useTheme,
   useMediaQuery,
@@ -49,6 +53,11 @@ const NearbyMechanics = () => {
   const [ratingSubmitting, setRatingSubmitting] = useState({});
   const [ratingSuccess, setRatingSuccess] = useState({});
   const [ratingError, setRatingError] = useState({});
+  const [requestTarget, setRequestTarget] = useState(null);
+  const [requestDescription, setRequestDescription] = useState('');
+  const [requestSubmitting, setRequestSubmitting] = useState(false);
+  const [requestError, setRequestError] = useState('');
+  const [requestSuccess, setRequestSuccess] = useState('');
 
   // Cleanup function to prevent state updates after unmount
   useEffect(() => {
@@ -162,6 +171,53 @@ const NearbyMechanics = () => {
       }
     }
   }, []);
+
+  const openGarageRequest = useCallback((mechanic) => {
+    if (cleanupRef.current) return;
+
+    setRequestTarget(mechanic);
+    setRequestDescription('');
+    setRequestError('');
+  }, []);
+
+  const closeGarageRequest = useCallback(() => {
+    if (requestSubmitting) return;
+
+    setRequestTarget(null);
+    setRequestError('');
+  }, [requestSubmitting]);
+
+  const submitGarageRequest = useCallback(async () => {
+    if (!requestTarget || cleanupRef.current) return;
+
+    setRequestSubmitting(true);
+    setRequestError('');
+    try {
+      await mechanicsAPI.createGarageRequest(
+        requestTarget._id,
+        requestTarget.garage._id,
+        {
+          description: requestDescription,
+          location: [searchParams.lon, searchParams.lat],
+        },
+      );
+      if (!cleanupRef.current) {
+        setRequestSuccess(`Request sent to ${requestTarget.garage.name}.`);
+        setRequestTarget(null);
+        setRequestDescription('');
+      }
+    } catch (requestFailure) {
+      if (!cleanupRef.current) {
+        setRequestError(
+          requestFailure.response?.data?.message || 'Unable to send your garage request',
+        );
+      }
+    } finally {
+      if (!cleanupRef.current) {
+        setRequestSubmitting(false);
+      }
+    }
+  }, [requestDescription, requestTarget, searchParams.lat, searchParams.lon]);
 
   return (
     <Box sx={{ px: { xs: 1, sm: 2 } }}>
@@ -307,6 +363,12 @@ const NearbyMechanics = () => {
           }}
         >
           {error}
+        </Alert>
+      )}
+
+      {requestSuccess && (
+        <Alert severity="success" sx={{ mb: { xs: 2, sm: 3 } }} onClose={() => setRequestSuccess('')}>
+          {requestSuccess}
         </Alert>
       )}
 
@@ -504,6 +566,20 @@ const NearbyMechanics = () => {
                       >
                         Chat
                       </Button>
+                      {user?.userType === 'user' && (
+                        <Button
+                          variant="contained"
+                          color="primary"
+                          size={isMobile ? "small" : "small"}
+                          onClick={() => openGarageRequest(mechanic)}
+                          sx={{
+                            fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                            flex: 1,
+                          }}
+                        >
+                          Request Help
+                        </Button>
+                      )}
                     </Box>
                   </CardContent>
                 </Card>
@@ -556,6 +632,38 @@ const NearbyMechanics = () => {
           </Typography>
         </Box>
       )}
+
+      <Dialog open={Boolean(requestTarget)} onClose={closeGarageRequest} fullWidth maxWidth="sm">
+        <DialogTitle>Request help from {requestTarget?.garage?.name}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Describe the issue. Your searched location is included with the request.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            multiline
+            minRows={4}
+            label="What help do you need?"
+            value={requestDescription}
+            onChange={(event) => setRequestDescription(event.target.value)}
+            error={Boolean(requestError)}
+            helperText={requestError || 'For example: flat tyre, car will not start, or towing needed.'}
+            inputProps={{ maxLength: 1000 }}
+            disabled={requestSubmitting}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeGarageRequest} disabled={requestSubmitting}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={submitGarageRequest}
+            disabled={!requestDescription.trim() || requestSubmitting}
+          >
+            {requestSubmitting ? 'Sending...' : 'Send Request'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

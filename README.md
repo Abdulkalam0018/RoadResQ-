@@ -84,6 +84,34 @@ Notes:
 - If email is not configured, registration still works and falls back to returning the verification URL for development.
 - If Cloudinary is not configured, avoid avatar and cover uploads until it is set.
 
+### 2a. Enable Kafka for garage requests (optional in development)
+
+Incoming requests sent from a user to a garage are stored in MongoDB, published to
+Kafka, and consumed into the garage's Socket.IO notification room. Start the local
+single-node broker with:
+
+```bash
+docker compose -f docker-compose.kafka.yml up -d
+```
+
+Then set the Kafka values in `.env` (the included defaults work with that compose
+file):
+
+```env
+KAFKA_BROKERS=localhost:9092
+KAFKA_CLIENT_ID=roadresq-api
+KAFKA_GARAGE_REQUEST_TOPIC=roadresq.garage-request.created
+KAFKA_GARAGE_REQUEST_GROUP_ID=roadresq-garage-notifications
+```
+
+If `KAFKA_BROKERS` is not set, requests still work locally and use the existing
+Socket.IO delivery path instead.
+
+The request endpoints are:
+
+- `POST /api/v1/mechanics/:mechanicId/garages/:garageId/requests` (authenticated user)
+- `GET /api/v1/mechanics/garage-requests/incoming` (authenticated mechanic)
+
 ### 3. Create the frontend env file
 
 ```bash

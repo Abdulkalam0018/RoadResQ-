@@ -8,6 +8,11 @@ import { ApiError } from './utils/ApiError.js';
 import jwt from 'jsonwebtoken'
 import cookie from 'cookie'
 import { getAllowedOriginsForSocket } from './utils/corsOrigins.js'
+import { startGarageRequestConsumer, disconnectKafka, isKafkaEnabled } from './services/kafka.service.js'
+import {
+    notifyIncomingGarageRequest,
+    registerGarageRequestNotifier,
+} from './services/garageRequestNotification.service.js'
 
 const httpServer = createServer(app)
 
@@ -19,6 +24,8 @@ const io = new Server(httpServer, {
     pingTimeout: 60000, 
     pingInterval: 25000 
 })
+
+registerGarageRequestNotifier(io)
 
 // Socket.IO middleware for authentication
 io.use(async (socket, next) => {
@@ -179,6 +186,12 @@ connectDB()
         console.log(`Server is running on port ${port}`);
     })
 
+    if (isKafkaEnabled) {
+        void startGarageRequestConsumer(notifyIncomingGarageRequest);
+    } else {
+        console.log('Kafka is disabled; garage requests will use the Socket.IO fallback.');
+    }
+
     httpServer.on('error', (error) => {
         console.error('Server error:', error);
         process.exit(1);
@@ -187,5 +200,15 @@ connectDB()
 .catch((error) => {
     console.error("Connection error in DB", error);
 })
+
+const shutdown = (signal) => {
+    console.log(`${signal} received; shutting down`);
+    httpServer.close(() => {
+        void disconnectKafka().finally(() => process.exit(0));
+    });
+};
+
+process.once('SIGINT', () => shutdown('SIGINT'));
+process.once('SIGTERM', () => shutdown('SIGTERM'));
 
 export { io }

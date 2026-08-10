@@ -1,5 +1,9 @@
 import { Router } from 'express';
 import { getNearbyMechanics } from '../controller/nearby.mechanic.js';
+import {
+    createGarageRequest,
+    getIncomingGarageRequests,
+} from '../controller/garageRequest.controller.js';
 import { verifyJWT } from '../middlewares/auth.middleware.js';
 import { User } from '../models/user.model.js';
 import mongoose from 'mongoose';
@@ -8,6 +12,11 @@ const router = Router();
 
 // Public route to get nearby garages (mechanics with garage info)
 router.get('/nearby', getNearbyMechanics);
+
+// Garage service requests. A user request is published to Kafka and then
+// delivered to the garage's Socket.IO room by the Kafka consumer.
+router.post('/:mechanicId/garages/:garageId/requests', verifyJWT, createGarageRequest);
+router.get('/garage-requests/incoming', verifyJWT, getIncomingGarageRequests);
 
 // Mechanic: Add/Edit garage details
 router.post('/garage', verifyJWT, async (req, res) => {

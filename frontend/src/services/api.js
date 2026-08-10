@@ -57,6 +57,10 @@ export const mechanicsAPI = {
     api.post('/users/add-or-update-garage', garage),
   rateGarage: (mechanicId, garageIndex, value) =>
     api.post(`/mechanics/rate/${mechanicId}`, { garageIndex, value }),
+  createGarageRequest: (mechanicId, garageId, request) =>
+    api.post(`/mechanics/${mechanicId}/garages/${garageId}/requests`, request),
+  getIncomingGarageRequests: (limit = 25) =>
+    api.get(`/mechanics/garage-requests/incoming?limit=${limit}`),
 };
 
 // User API calls

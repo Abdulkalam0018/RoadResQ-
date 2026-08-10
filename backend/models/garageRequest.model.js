@@ -44,6 +44,14 @@ const garageRequestSchema = new Schema(
       default: 'pending',
       index: true,
     },
+    estimatedArrivalMinutes: {
+      type: Number,
+      min: 1,
+      max: 1440,
+    },
+    respondedAt: {
+      type: Date,
+    },
   },
   { timestamps: true },
 );

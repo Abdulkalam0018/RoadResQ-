@@ -3,6 +3,8 @@ import { getNearbyMechanics } from '../controller/nearby.mechanic.js';
 import {
     createGarageRequest,
     getIncomingGarageRequests,
+    getMyGarageRequests,
+    updateGarageRequestStatus,
 } from '../controller/garageRequest.controller.js';
 import { verifyJWT } from '../middlewares/auth.middleware.js';
 import { User } from '../models/user.model.js';
@@ -17,6 +19,8 @@ router.get('/nearby', getNearbyMechanics);
 // delivered to the garage's Socket.IO room by the Kafka consumer.
 router.post('/:mechanicId/garages/:garageId/requests', verifyJWT, createGarageRequest);
 router.get('/garage-requests/incoming', verifyJWT, getIncomingGarageRequests);
+router.get('/garage-requests/mine', verifyJWT, getMyGarageRequests);
+router.patch('/garage-requests/:requestId/status', verifyJWT, updateGarageRequestStatus);
 
 // Mechanic: Add/Edit garage details
 router.post('/garage', verifyJWT, async (req, res) => {

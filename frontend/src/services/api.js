@@ -61,6 +61,10 @@ export const mechanicsAPI = {
     api.post(`/mechanics/${mechanicId}/garages/${garageId}/requests`, request),
   getIncomingGarageRequests: (limit = 25) =>
     api.get(`/mechanics/garage-requests/incoming?limit=${limit}`),
+  getMyGarageRequests: (limit = 25) =>
+    api.get(`/mechanics/garage-requests/mine?limit=${limit}`),
+  updateGarageRequestStatus: (requestId, update) =>
+    api.patch(`/mechanics/garage-requests/${requestId}/status`, update),
 };
 
 // User API calls

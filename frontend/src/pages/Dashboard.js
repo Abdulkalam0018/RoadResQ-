@@ -53,6 +53,10 @@ const Dashboard = () => {
   const [availabilityError, setAvailabilityError] = useState('');
   const [garageRequests, setGarageRequests] = useState([]);
   const [requestNotice, setRequestNotice] = useState('');
+  const [helpRequests, setHelpRequests] = useState([]);
+  const [requestEtas, setRequestEtas] = useState({});
+  const [requestResponseLoading, setRequestResponseLoading] = useState({});
+  const [requestResponseError, setRequestResponseError] = useState('');
 
   // Cleanup function to prevent state updates after unmount
   useEffect(() => {
@@ -155,6 +159,25 @@ const Dashboard = () => {
     void fetchGarageRequests();
   }, [fetchGarageRequests]);
 
+  const fetchHelpRequests = useCallback(async () => {
+    if (cleanupRef.current || user?.userType !== 'user') return;
+
+    try {
+      const response = await mechanicsAPI.getMyGarageRequests();
+      if (!cleanupRef.current) {
+        setHelpRequests(response.data?.data || []);
+      }
+    } catch (error) {
+      if (!cleanupRef.current) {
+        console.error('Failed to fetch help activity:', error);
+      }
+    }
+  }, [user?.userType]);
+
+  useEffect(() => {
+    void fetchHelpRequests();
+  }, [fetchHelpRequests]);
+
   useEffect(() => {
     if (user?.userType !== 'mechanic') return undefined;
 
@@ -185,6 +208,41 @@ const Dashboard = () => {
     return () => {
       if (retryTimer) window.clearTimeout(retryTimer);
       socket?.off('garage_request_received', handleGarageRequest);
+    };
+  }, [user?.userType]);
+
+  useEffect(() => {
+    if (user?.userType !== 'user') return undefined;
+
+    let socket;
+    let retryTimer;
+
+    const handleGarageRequestUpdate = (request) => {
+      if (cleanupRef.current) return;
+
+      setHelpRequests((current) =>
+        current.map((item) =>
+          (item._id || item.requestId) === request.requestId
+            ? { ...item, ...request }
+            : item
+        )
+      );
+    };
+
+    const subscribe = () => {
+      socket = getSocket();
+      if (!socket) {
+        retryTimer = window.setTimeout(subscribe, 100);
+        return;
+      }
+
+      socket.on('garage_request_updated', handleGarageRequestUpdate);
+    };
+
+    subscribe();
+    return () => {
+      if (retryTimer) window.clearTimeout(retryTimer);
+      socket?.off('garage_request_updated', handleGarageRequestUpdate);
     };
   }, [user?.userType]);
 
@@ -284,6 +342,49 @@ const Dashboard = () => {
     }
   }, []);
 
+  const handleGarageRequestResponse = useCallback(async (request, status) => {
+    const requestId = request._id || request.requestId;
+    const eta = Number(requestEtas[requestId] || 30);
+
+    setRequestResponseLoading((current) => ({
+      ...current,
+      [requestId]: true,
+    }));
+    setRequestResponseError('');
+
+    try {
+      const response = await mechanicsAPI.updateGarageRequestStatus(
+        requestId,
+        status === 'accepted'
+          ? { status, estimatedArrivalMinutes: eta }
+          : { status }
+      );
+      if (!cleanupRef.current) {
+        const updatedRequest = response.data?.data;
+        setGarageRequests((current) =>
+          current.map((item) =>
+            (item._id || item.requestId) === requestId
+              ? { ...item, ...updatedRequest }
+              : item
+          )
+        );
+      }
+    } catch (error) {
+      if (!cleanupRef.current) {
+        setRequestResponseError(
+          error.response?.data?.message || 'Unable to update the garage request'
+        );
+      }
+    } finally {
+      if (!cleanupRef.current) {
+        setRequestResponseLoading((current) => ({
+          ...current,
+          [requestId]: false,
+        }));
+      }
+    }
+  }, [requestEtas]);
+
   if (!user) {
     return (
       <Box sx={{ textAlign: 'center', py: 4 }}>
@@ -342,6 +443,54 @@ const Dashboard = () => {
             Open Messages
           </Button>
         </Box>
+
+        <Card elevation={2} sx={{ mt: 4, textAlign: 'left', maxWidth: 960, mx: 'auto' }}>
+          <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+            <Typography variant="h6" gutterBottom>
+              Help Activity
+            </Typography>
+            {helpRequests.length === 0 ? (
+              <Typography color="text.secondary">
+                You do not have any help requests yet.
+              </Typography>
+            ) : (
+              helpRequests.map((request) => {
+                const mechanic = request.mechanic || {};
+                const statusColor =
+                  request.status === 'accepted'
+                    ? 'success'
+                    : request.status === 'declined'
+                      ? 'error'
+                      : 'warning';
+                const statusMessage =
+                  request.status === 'accepted'
+                    ? `${mechanic.fullName || 'The garage'} will provide aid in about ${request.estimatedArrivalMinutes} minutes.`
+                    : request.status === 'declined'
+                      ? 'This garage cannot take your request right now.'
+                      : 'Your request has been sent. The garage is reviewing it.';
+
+                return (
+                  <Card key={request._id || request.requestId} variant="outlined" sx={{ mb: 1.5 }}>
+                    <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'center' }}>
+                        <Typography variant="subtitle1" fontWeight="bold">
+                          {request.garageName}
+                        </Typography>
+                        <Chip label={request.status} color={statusColor} size="small" />
+                      </Box>
+                      <Typography variant="body2" sx={{ mt: 1 }}>
+                        {statusMessage}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Request: {request.description}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                );
+              })
+            )}
+          </CardContent>
+        </Card>
 
         <Card elevation={2} sx={{ mt: 4, textAlign: 'left', maxWidth: 960, mx: 'auto' }}>
           <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
@@ -696,6 +845,11 @@ const Dashboard = () => {
                     {requestNotice}
                   </Alert>
                 )}
+                {requestResponseError && (
+                  <Alert severity="error" sx={{ mb: 2 }}>
+                    {requestResponseError}
+                  </Alert>
+                )}
                 <Typography variant={isMobile ? "h6" : "h6"} gutterBottom>
                   Incoming Requests
                 </Typography>
@@ -725,6 +879,48 @@ const Dashboard = () => {
                             <Typography variant="caption" color="text.secondary">
                               Location: {request.location[1].toFixed(4)}, {request.location[0].toFixed(4)}
                             </Typography>
+                          )}
+                          {request.status === 'pending' ? (
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mt: 1.5 }}>
+                              <TextField
+                                label="ETA (minutes)"
+                                type="number"
+                                size="small"
+                                value={requestEtas[requestId] || 30}
+                                onChange={(event) => setRequestEtas((current) => ({
+                                  ...current,
+                                  [requestId]: event.target.value,
+                                }))}
+                                inputProps={{ min: 1, max: 1440 }}
+                                disabled={requestResponseLoading[requestId]}
+                              />
+                              <Button
+                                variant="contained"
+                                size="small"
+                                disabled={requestResponseLoading[requestId]}
+                                onClick={() => handleGarageRequestResponse(request, 'accepted')}
+                              >
+                                Accept & Send ETA
+                              </Button>
+                              <Button
+                                variant="outlined"
+                                color="error"
+                                size="small"
+                                disabled={requestResponseLoading[requestId]}
+                                onClick={() => handleGarageRequestResponse(request, 'declined')}
+                              >
+                                Decline
+                              </Button>
+                            </Box>
+                          ) : (
+                            <Chip
+                              sx={{ mt: 1.5 }}
+                              size="small"
+                              color={request.status === 'accepted' ? 'success' : 'default'}
+                              label={request.status === 'accepted'
+                                ? `Accepted — ETA ${request.estimatedArrivalMinutes} min`
+                                : request.status}
+                            />
                           )}
                         </CardContent>
                       </Card>

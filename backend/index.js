@@ -177,25 +177,6 @@ io.on('connection', (socket) => {
         console.error('Socket error:', error)
         socket.emit('error', 'An error occurred')
     })
-})
-
-connectDB()
-.then(() => {
-    const port = process.env.PORT || 9000
-    httpServer.listen(port, '0.0.0.0', () => {
-        console.log(`Server is running on port ${port}`);
-    })
-
-    if (isKafkaEnabled) {
-        void startGarageRequestConsumer(notifyIncomingGarageRequest);
-    } else {
-        console.log('Kafka is disabled; garage requests will use the Socket.IO fallback.');
-    }
-
-    httpServer.on('error', (error) => {
-        console.error('Server error:', error);
-        process.exit(1);
-    });
 
     socket.on("share_garage_request_location", async (data) => {
         try {
@@ -250,6 +231,27 @@ connectDB()
             socket.emit("garage_request_location_error", error.message);
         }
     });
+})
+
+connectDB()
+.then(() => {
+    const port = process.env.PORT || 9000
+    httpServer.listen(port, '0.0.0.0', () => {
+        console.log(`Server is running on port ${port}`);
+    })
+
+    if (isKafkaEnabled) {
+        void startGarageRequestConsumer(notifyIncomingGarageRequest);
+    } else {
+        console.log('Kafka is disabled; garage requests will use the Socket.IO fallback.');
+    }
+
+    httpServer.on('error', (error) => {
+        console.error('Server error:', error);
+        process.exit(1);
+    });
+
+
 })
 .catch((error) => {
     console.error("Connection error in DB", error);

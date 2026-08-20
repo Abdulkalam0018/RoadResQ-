@@ -1,1221 +1,1859 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Chip,
-  FormControlLabel,
-  Divider,
-  TextField,
-  Alert,
-  Rating,
-  Switch,
-  useTheme,
-  useMediaQuery,
-} from '@mui/material';
+    Box,
+    Typography,
+    Card,
+    CardContent,
+    Grid,
+    Button,
+    Chip,
+    FormControlLabel,
+    Divider,
+    TextField,
+    Alert,
+    Rating,
+    Switch,
+    useTheme,
+    useMediaQuery,
+} from "@mui/material";
+import { LocationOn } from "@mui/icons-material";
+import { useAuth } from "../context/AuthContext";
+import { mechanicsAPI, userAPI } from "../services/api";
+import { getSocket } from "../services/socket";
+import { useNavigate } from "react-router-dom";
+import LiveTrackingMap from "../components/LiveTrackingMap";
+import AIRoadsideAssistant from "../components/AIRoadsideAssistant";
 import {
-  LocationOn,
-} from '@mui/icons-material';
-import { useAuth } from '../context/AuthContext';
-import { mechanicsAPI, userAPI } from '../services/api';
-import { getSocket } from '../services/socket';
-import { useNavigate } from 'react-router-dom';
-import AIRoadsideAssistant from '../components/AIRoadsideAssistant';
-import {
-  getGeolocationErrorMessage,
-  requestCurrentPosition,
-} from '../utils/geolocation';
-
-const getTrackingPositions = (mechanicLocation, requestLocation) => {
-  if (!Array.isArray(requestLocation) || requestLocation.length !== 2) {
-    return { mechanic: { left: '50%', top: '50%' }, customer: null };
-  }
-
-  const [mechanicLongitude, mechanicLatitude] = mechanicLocation;
-  const [customerLongitude, customerLatitude] = requestLocation;
-  const longitudeRange = Math.max(Math.abs(mechanicLongitude - customerLongitude), 0.001);
-  const latitudeRange = Math.max(Math.abs(mechanicLatitude - customerLatitude), 0.001);
-  const padding = 20;
-  const mechanicLeft = mechanicLongitude >= customerLongitude ? 100 - padding : padding;
-  const mechanicTop = mechanicLatitude >= customerLatitude ? padding : 100 - padding;
-  const customerLeft = mechanicLeft === padding ? 100 - padding : padding;
-  const customerTop = mechanicTop === padding ? 100 - padding : padding;
-
-  return {
-    mechanic: { left: `${mechanicLeft}%`, top: `${mechanicTop}%` },
-    customer: { left: `${customerLeft}%`, top: `${customerTop}%` },
-    distanceScale: Math.max(longitudeRange, latitudeRange),
-  };
-};
+    getGeolocationErrorMessage,
+    requestCurrentPosition,
+} from "../utils/geolocation";
 
 const Dashboard = () => {
-  const { user } = useAuth();
-  const navigate = useNavigate();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const cleanupRef = useRef(false);
-  
-  const [garageForm, setGarageForm] = useState({
-    name: '',
-    location: [0, 0],
-  });
-  const [showGaragePage, setShowGaragePage] = useState(false);
-  const [garages, setGarages] = useState([]);
-  const [garageSuccess, setGarageSuccess] = useState('');
-  const [garageError, setGarageError] = useState('');
-  const [loadingGarages, setLoadingGarages] = useState(false);
-  const [locatingGarage, setLocatingGarage] = useState(false);
-  const [deletingIndex, setDeletingIndex] = useState(null);
-  const [isAvailable, setIsAvailable] = useState(Boolean(user?.isAvailable));
-  const [availabilityLoading, setAvailabilityLoading] = useState(false);
-  const [availabilityMessage, setAvailabilityMessage] = useState('');
-  const [availabilityError, setAvailabilityError] = useState('');
-  const [garageRequests, setGarageRequests] = useState([]);
-  const [requestNotice, setRequestNotice] = useState('');
-  const [helpRequests, setHelpRequests] = useState([]);
-  const [requestEtas, setRequestEtas] = useState({});
-  const [requestResponseLoading, setRequestResponseLoading] = useState({});
-  const [requestResponseError, setRequestResponseError] = useState('');
-  const [trackingLocations, setTrackingLocations] = useState({});
-  const [trackingError, setTrackingError] = useState('');
+    const { user } = useAuth();
+    const navigate = useNavigate();
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+    const cleanupRef = useRef(false);
+    const lastLocationUpdateRef = useRef(0);
 
-  // Cleanup function to prevent state updates after unmount
-  useEffect(() => {
-    cleanupRef.current = false;
-    return () => {
-      cleanupRef.current = true;
-    };
-  }, []);
-
-  const handleGarageInputChange = useCallback((e) => {
-    if (cleanupRef.current) return;
-    
-    const { name, value } = e.target;
-    setGarageForm((prev) => ({ ...prev, [name]: value }));
-  }, []);
-
-  const handleGarageLocationChange = useCallback((e, idx) => {
-    if (cleanupRef.current) return;
-    
-    const value = parseFloat(e.target.value) || 0;
-    setGarageForm((prev) => {
-      const coords = [...prev.location];
-      coords[idx] = value;
-      return { ...prev, location: coords };
+    const [garageForm, setGarageForm] = useState({
+        name: "",
+        location: [0, 0],
     });
-  }, []);
+    const [showGaragePage, setShowGaragePage] = useState(false);
+    const [garages, setGarages] = useState([]);
+    const [garageSuccess, setGarageSuccess] = useState("");
+    const [garageError, setGarageError] = useState("");
+    const [loadingGarages, setLoadingGarages] = useState(false);
+    const [locatingGarage, setLocatingGarage] = useState(false);
+    const [deletingIndex, setDeletingIndex] = useState(null);
+    const [isAvailable, setIsAvailable] = useState(Boolean(user?.isAvailable));
+    const [availabilityLoading, setAvailabilityLoading] = useState(false);
+    const [availabilityMessage, setAvailabilityMessage] = useState("");
+    const [availabilityError, setAvailabilityError] = useState("");
+    const [garageRequests, setGarageRequests] = useState([]);
+    const [requestNotice, setRequestNotice] = useState("");
+    const [helpRequests, setHelpRequests] = useState([]);
+    const [requestEtas, setRequestEtas] = useState({});
+    const [requestResponseLoading, setRequestResponseLoading] = useState({});
+    const [requestResponseError, setRequestResponseError] = useState("");
+    const [trackingLocations, setTrackingLocations] = useState({});
+    const [trackingError, setTrackingError] = useState("");
 
-  const handleUseMyLocation = useCallback(() => {
-    if (cleanupRef.current) return;
+    // Cleanup function to prevent state updates after unmount
+    useEffect(() => {
+        cleanupRef.current = false;
+        return () => {
+            cleanupRef.current = true;
+        };
+    }, []);
 
-    setGarageError('');
-    setGarageSuccess('');
-    setLocatingGarage(true);
+    const handleGarageInputChange = useCallback((e) => {
+        if (cleanupRef.current) return;
 
-    requestCurrentPosition()
-      .then((position) => {
-        if (!cleanupRef.current) {
-          setGarageForm((prev) => ({
-            ...prev,
-            location: [position.coords.longitude, position.coords.latitude]
-          }));
-          setGarageSuccess('Current location added to the garage form.');
-        }
-      })
-      .catch((locationError) => {
-        if (!cleanupRef.current) {
-          console.error('Error getting location:', locationError);
-          setGarageError(getGeolocationErrorMessage(locationError));
-        }
-      })
-      .finally(() => {
-        if (!cleanupRef.current) {
-          setLocatingGarage(false);
-        }
-      });
-  }, []);
+        const { name, value } = e.target;
+        setGarageForm((prev) => ({ ...prev, [name]: value }));
+    }, []);
 
-  const fetchGarages = useCallback(async () => {
-    if (cleanupRef.current) return;
-    
-    setLoadingGarages(true);
-    try {
-      const res = await userAPI.getUserGarages(user?._id);
-      if (!cleanupRef.current) {
-        setGarages(res.data.data || []);
-      }
-    } catch (error) {
-      if (!cleanupRef.current) {
-        console.error('Failed to fetch garages:', error);
-      }
-    } finally {
-      if (!cleanupRef.current) {
-        setLoadingGarages(false);
-      }
-    }
-  }, [user?._id]);
+    const handleGarageLocationChange = useCallback((e, idx) => {
+        if (cleanupRef.current) return;
 
-  useEffect(() => {
-    if (user && user.userType === 'mechanic' && !cleanupRef.current) {
-      fetchGarages();
-    }
-  }, [user, fetchGarages]);
-
-  const fetchGarageRequests = useCallback(async () => {
-    if (cleanupRef.current || user?.userType !== 'mechanic') return;
-
-    try {
-      const response = await mechanicsAPI.getIncomingGarageRequests();
-      if (!cleanupRef.current) {
-        setGarageRequests(response.data?.data || []);
-      }
-    } catch (error) {
-      if (!cleanupRef.current) {
-        console.error('Failed to fetch incoming garage requests:', error);
-      }
-    }
-  }, [user?.userType]);
-
-  useEffect(() => {
-    void fetchGarageRequests();
-  }, [fetchGarageRequests]);
-
-  const fetchHelpRequests = useCallback(async () => {
-    if (cleanupRef.current || user?.userType !== 'user') return;
-
-    try {
-      const response = await mechanicsAPI.getMyGarageRequests();
-      if (!cleanupRef.current) {
-        const requests = response.data?.data || [];
-        setHelpRequests(requests);
-        setTrackingLocations(
-          requests.reduce((locations, request) => {
-            if (request.liveLocation?.coordinates) {
-              locations[request._id] = {
-                location: request.liveLocation.coordinates,
-                updatedAt: request.liveLocationUpdatedAt,
-              };
-            }
-            return locations;
-          }, {})
-        );
-      }
-    } catch (error) {
-      if (!cleanupRef.current) {
-        console.error('Failed to fetch help activity:', error);
-      }
-    }
-  }, [user?.userType]);
-
-  useEffect(() => {
-    void fetchHelpRequests();
-  }, [fetchHelpRequests]);
-
-  useEffect(() => {
-    if (user?.userType !== 'mechanic') return undefined;
-
-    let socket;
-    let retryTimer;
-
-    const handleGarageRequest = (request) => {
-      if (cleanupRef.current) return;
-
-      setGarageRequests((current) => [
-        request,
-        ...current.filter((item) => (item._id || item.requestId) !== request.requestId),
-      ]);
-      setRequestNotice(`New request from ${request.requester?.fullName || 'a customer'} for ${request.garageName}.`);
-    };
-
-    const subscribe = () => {
-      socket = getSocket();
-      if (!socket) {
-        retryTimer = window.setTimeout(subscribe, 100);
-        return;
-      }
-
-      socket.on('garage_request_received', handleGarageRequest);
-    };
-
-    subscribe();
-    return () => {
-      if (retryTimer) window.clearTimeout(retryTimer);
-      socket?.off('garage_request_received', handleGarageRequest);
-    };
-  }, [user?.userType]);
-
-  useEffect(() => {
-    if (user?.userType !== 'user') return undefined;
-
-    let socket;
-    let retryTimer;
-
-    const handleGarageRequestUpdate = (request) => {
-      if (cleanupRef.current) return;
-
-      setHelpRequests((current) =>
-        current.map((item) =>
-          (item._id || item.requestId) === request.requestId
-            ? { ...item, ...request }
-            : item
-        )
-      );
-    };
-
-    const handleLocationUpdate = (update) => {
-      if (cleanupRef.current) return;
-
-      setTrackingLocations((current) => ({
-        ...current,
-        [update.requestId]: {
-          location: update.location,
-          updatedAt: update.updatedAt,
-        },
-      }));
-    };
-
-    const subscribe = () => {
-      socket = getSocket();
-      if (!socket) {
-        retryTimer = window.setTimeout(subscribe, 100);
-        return;
-      }
-
-      socket.on('garage_request_updated', handleGarageRequestUpdate);
-      socket.on('garage_request_location_updated', handleLocationUpdate);
-    };
-
-    subscribe();
-    return () => {
-      if (retryTimer) window.clearTimeout(retryTimer);
-      socket?.off('garage_request_updated', handleGarageRequestUpdate);
-      socket?.off('garage_request_location_updated', handleLocationUpdate);
-    };
-  }, [user?.userType]);
-
-  useEffect(() => {
-    if (user?.userType !== 'mechanic') return undefined;
-
-    const activeRequestIds = garageRequests
-      .filter((request) => request.status === 'accepted')
-      .map((request) => request._id || request.requestId)
-      .filter(Boolean);
-
-    if (activeRequestIds.length === 0) return undefined;
-
-    if (!navigator.geolocation) {
-      setTrackingError('Live location sharing is not supported by this browser.');
-      return undefined;
-    }
-
-    const watchId = navigator.geolocation.watchPosition(
-      (position) => {
-        const socket = getSocket();
-        if (!socket) return;
-
-        setTrackingError('');
-        const location = [position.coords.longitude, position.coords.latitude];
-        activeRequestIds.forEach((requestId) => {
-          socket.emit('share_garage_request_location', { requestId, location });
+        const value = parseFloat(e.target.value) || 0;
+        setGarageForm((prev) => {
+            const coords = [...prev.location];
+            coords[idx] = value;
+            return { ...prev, location: coords };
         });
-      },
-      (error) => {
-        if (!cleanupRef.current) {
-          setTrackingError(
-            error.code === 1
-              ? 'Allow location access to share your live position with the customer.'
-              : 'Unable to update your live location right now.'
-          );
+    }, []);
+
+    const handleUseMyLocation = useCallback(() => {
+        if (cleanupRef.current) return;
+
+        setGarageError("");
+        setGarageSuccess("");
+        setLocatingGarage(true);
+
+        requestCurrentPosition()
+            .then((position) => {
+                if (!cleanupRef.current) {
+                    setGarageForm((prev) => ({
+                        ...prev,
+                        location: [
+                            position.coords.longitude,
+                            position.coords.latitude,
+                        ],
+                    }));
+                    setGarageSuccess(
+                        "Current location added to the garage form."
+                    );
+                }
+            })
+            .catch((locationError) => {
+                if (!cleanupRef.current) {
+                    console.error("Error getting location:", locationError);
+                    setGarageError(getGeolocationErrorMessage(locationError));
+                }
+            })
+            .finally(() => {
+                if (!cleanupRef.current) {
+                    setLocatingGarage(false);
+                }
+            });
+    }, []);
+
+    const fetchGarages = useCallback(async () => {
+        if (cleanupRef.current) return;
+
+        setLoadingGarages(true);
+        try {
+            const res = await userAPI.getUserGarages(user?._id);
+            if (!cleanupRef.current) {
+                setGarages(res.data.data || []);
+            }
+        } catch (error) {
+            if (!cleanupRef.current) {
+                console.error("Failed to fetch garages:", error);
+            }
+        } finally {
+            if (!cleanupRef.current) {
+                setLoadingGarages(false);
+            }
         }
-      },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 5000,
-        timeout: 10000,
-      }
-    );
+    }, [user?._id]);
 
-    return () => navigator.geolocation.clearWatch(watchId);
-  }, [garageRequests, user?.userType]);
+    useEffect(() => {
+        if (user && user.userType === "mechanic" && !cleanupRef.current) {
+            fetchGarages();
+        }
+    }, [user, fetchGarages]);
 
-  useEffect(() => {
-    if (!cleanupRef.current) {
-      setIsAvailable(Boolean(user?.isAvailable));
-    }
-  }, [user?.isAvailable]);
+    const fetchGarageRequests = useCallback(async () => {
+        if (cleanupRef.current || user?.userType !== "mechanic") return;
 
-  useEffect(() => {
-    const handleAssistantAction = (event) => {
-      if (cleanupRef.current) return;
-
-      const action = event.detail;
-      if (!action?.type) return;
-
-      if (action.type === 'navigate' && action.path) {
-        navigate(action.path);
-      }
-
-      if (action.type === 'open_garage_manager') {
-        setShowGaragePage(true);
-      }
-    };
-
-    window.addEventListener('roadresq:assistant-action', handleAssistantAction);
-    return () => {
-      window.removeEventListener('roadresq:assistant-action', handleAssistantAction);
-    };
-  }, [navigate]);
-
-  const handleGarageSubmit = useCallback(async (e) => {
-    e.preventDefault();
-    if (cleanupRef.current) return;
-    
-    setGarageSuccess('');
-    setGarageError('');
-    try {
-      const response = await userAPI.addOrUpdateGarage(garageForm);
-      if (!cleanupRef.current) {
-        setGarages(response.data.data);
-        setGarageSuccess('Garage added successfully!');
-        setGarageForm({ name: '', location: [0, 0] });
-      }
-    } catch (error) {
-      if (!cleanupRef.current) {
-        setGarageError(error.response?.data?.message || 'Failed to add garage');
-      }
-    }
-  }, [garageForm]);
-
-  const handleDeleteGarage = useCallback(async (index) => {
-    if (cleanupRef.current) return;
-    
-    setDeletingIndex(index);
-    setGarageSuccess('');
-    setGarageError('');
-    try {
-      const response = await userAPI.deleteGarage(index);
-      if (!cleanupRef.current) {
-        setGarages(response.data.data);
-        setGarageSuccess('Garage deleted successfully!');
-      }
-    } catch (error) {
-      if (!cleanupRef.current) {
-        setGarageError(error.response?.data?.message || 'Failed to delete garage');
-      }
-    } finally {
-      if (!cleanupRef.current) {
-        setDeletingIndex(null);
-      }
-    }
-  }, []);
-
-  const handleAvailabilityChange = useCallback(async (event) => {
-    if (cleanupRef.current) return;
-
-    const nextValue = event.target.checked;
-    setAvailabilityLoading(true);
-    setAvailabilityMessage('');
-    setAvailabilityError('');
-
-    try {
-      const response = await mechanicsAPI.updateAvailability(nextValue);
-      if (!cleanupRef.current) {
-        setIsAvailable(Boolean(response.data?.data?.isAvailable));
-        setAvailabilityMessage(`Availability is now ${response.data?.data?.isAvailable ? 'ON' : 'OFF'}.`);
-      }
-    } catch (error) {
-      if (!cleanupRef.current) {
-        setAvailabilityError(error.response?.data?.message || 'Failed to update availability');
-      }
-    } finally {
-      if (!cleanupRef.current) {
-        setAvailabilityLoading(false);
-      }
-    }
-  }, []);
-
-  const handleGarageRequestResponse = useCallback(async (request, status) => {
-    const requestId = request._id || request.requestId;
-    const eta = Number(requestEtas[requestId] || 30);
-
-    setRequestResponseLoading((current) => ({
-      ...current,
-      [requestId]: true,
-    }));
-    setRequestResponseError('');
-
-    try {
-      const response = await mechanicsAPI.updateGarageRequestStatus(
-        requestId,
-        status === 'accepted'
-          ? { status, estimatedArrivalMinutes: eta }
-          : { status }
-      );
-      if (!cleanupRef.current) {
-        const updatedRequest = response.data?.data;
-        setGarageRequests((current) =>
-          current.map((item) =>
-            (item._id || item.requestId) === requestId
-              ? { ...item, ...updatedRequest }
-              : item
-          )
-        );
-      }
-    } catch (error) {
-      if (!cleanupRef.current) {
-        setRequestResponseError(
-          error.response?.data?.message || 'Unable to update the garage request'
-        );
-      }
-    } finally {
-      if (!cleanupRef.current) {
-        setRequestResponseLoading((current) => ({
-          ...current,
-          [requestId]: false,
-        }));
-      }
-    }
-  }, [requestEtas]);
-
-  if (!user) {
-    return (
-      <Box sx={{ textAlign: 'center', py: 4 }}>
-        <Typography variant="h6">Please log in to view your dashboard</Typography>
-      </Box>
-    );
-  }
-
-  if (user.userType !== 'mechanic') {
-    return (
-      <Box sx={{ 
-        textAlign: 'center', 
-        py: { xs: 2, sm: 4 },
-        px: { xs: 2, sm: 0 }
-      }}>
-        <Typography 
-          variant={isMobile ? "h5" : "h4"} 
-          gutterBottom
-          sx={{ 
-            fontSize: { xs: '1.5rem', sm: '2rem', md: '2.125rem' },
-            mb: { xs: 2, sm: 4 }
-          }}
-        >
-          Welcome, {user.fullName}!
-        </Typography>
-        <Box sx={{ 
-          mt: { xs: 2, sm: 4 },
-          display: 'flex',
-          flexDirection: { xs: 'column', sm: 'row' },
-          justifyContent: 'center',
-          gap: 2
-        }}>
-          <Button
-            variant="contained"
-            size={isMobile ? "large" : "large"}
-            color="primary"
-            sx={{ 
-              fontSize: { xs: '1rem', sm: '1.1rem' },
-              py: { xs: 1.5, sm: 2 },
-              px: { xs: 3, sm: 4 }
-            }}
-            onClick={() => navigate('/nearby-mechanics')}
-          >
-            Search Nearby Garage
-          </Button>
-          <Button
-            variant="outlined"
-            size={isMobile ? "large" : "large"}
-            sx={{ 
-              fontSize: { xs: '1rem', sm: '1.1rem' },
-              py: { xs: 1.5, sm: 2 },
-              px: { xs: 3, sm: 4 }
-            }}
-            onClick={() => navigate('/chat')}
-          >
-            Open Messages
-          </Button>
-        </Box>
-
-        <Card elevation={2} sx={{ mt: 4, textAlign: 'left', maxWidth: 960, mx: 'auto' }}>
-          <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-            <Typography variant="h6" gutterBottom>
-              Help Activity
-            </Typography>
-            {helpRequests.length === 0 ? (
-              <Typography color="text.secondary">
-                You do not have any help requests yet.
-              </Typography>
-            ) : (
-              helpRequests.map((request) => {
-                const requestId = request._id || request.requestId;
-                const mechanic = request.mechanic || {};
-                const liveTracking =
-                  trackingLocations[requestId] ||
-                  (request.liveLocation?.coordinates
-                    ? {
-                        location: request.liveLocation.coordinates,
-                        updatedAt: request.liveLocationUpdatedAt,
-                      }
-                    : null);
-                const statusColor =
-                  request.status === 'accepted'
-                    ? 'success'
-                    : request.status === 'declined'
-                      ? 'error'
-                      : 'warning';
-                const statusMessage =
-                  request.status === 'accepted'
-                    ? `${mechanic.fullName || 'The garage'} will provide aid in about ${request.estimatedArrivalMinutes} minutes.`
-                    : request.status === 'declined'
-                      ? 'This garage cannot take your request right now.'
-                      : 'Your request has been sent. The garage is reviewing it.';
-
-                return (
-                  <Card key={request._id || request.requestId} variant="outlined" sx={{ mb: 1.5 }}>
-                    <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'center' }}>
-                        <Typography variant="subtitle1" fontWeight="bold">
-                          {request.garageName}
-                        </Typography>
-                        <Chip label={request.status} color={statusColor} size="small" />
-                      </Box>
-                      <Typography variant="body2" sx={{ mt: 1 }}>
-                        {statusMessage}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Request: {request.description}
-                      </Typography>
-                      {request.status === 'accepted' && (
-                        <Box sx={{ mt: 2 }}>
-                          <Typography variant="subtitle2" color="success.main">
-                            Live mechanic tracking
-                          </Typography>
-                          {liveTracking?.location ? (() => {
-                            const positions = getTrackingPositions(
-                              liveTracking.location,
-                              request.location?.coordinates
-                            );
-                            return (
-                              <>
-                                <Box
-                                  sx={{
-                                    position: 'relative',
-                                    height: 180,
-                                    mt: 1,
-                                    overflow: 'hidden',
-                                    borderRadius: 2,
-                                    backgroundColor: 'primary.50',
-                                    backgroundImage: 'linear-gradient(90deg, rgba(25, 118, 210, 0.13) 1px, transparent 1px), linear-gradient(rgba(25, 118, 210, 0.13) 1px, transparent 1px)',
-                                    backgroundSize: '24px 24px',
-                                  }}
-                                >
-                                  {positions.customer && (
-                                    <Box sx={{ position: 'absolute', ...positions.customer, transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
-                                      <LocationOn color="error" />
-                                      <Typography variant="caption" display="block">You</Typography>
-                                    </Box>
-                                  )}
-                                  <Box sx={{ position: 'absolute', ...positions.mechanic, transform: 'translate(-50%, -50%)', textAlign: 'center', transition: 'left 1s ease, top 1s ease' }}>
-                                    <LocationOn color="success" />
-                                    <Typography variant="caption" display="block">Mechanic</Typography>
-                                  </Box>
-                                </Box>
-                                <Typography variant="caption" color="text.secondary">
-                                  Live position updated {liveTracking.updatedAt ? new Date(liveTracking.updatedAt).toLocaleTimeString() : 'just now'}
-                                </Typography>
-                              </>
-                            );
-                          })() : (
-                            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                              Waiting for the mechanic to begin live location sharing.
-                            </Typography>
-                          )}
-                        </Box>
-                      )}
-                    </CardContent>
-                  </Card>
+        try {
+            const response = await mechanicsAPI.getIncomingGarageRequests();
+            if (!cleanupRef.current) {
+                setGarageRequests(response.data?.data || []);
+            }
+        } catch (error) {
+            if (!cleanupRef.current) {
+                console.error(
+                    "Failed to fetch incoming garage requests:",
+                    error
                 );
-              })
-            )}
-          </CardContent>
-        </Card>
+            }
+        }
+    }, [user?.userType]);
 
-        <Card elevation={2} sx={{ mt: 4, textAlign: 'left', maxWidth: 960, mx: 'auto' }}>
-          <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-            <AIRoadsideAssistant />
-          </CardContent>
-        </Card>
-      </Box>
+    useEffect(() => {
+        void fetchGarageRequests();
+    }, [fetchGarageRequests]);
+
+    const fetchHelpRequests = useCallback(async () => {
+        if (cleanupRef.current || user?.userType !== "user") return;
+
+        try {
+            const response = await mechanicsAPI.getMyGarageRequests();
+            if (!cleanupRef.current) {
+                const requests = response.data?.data || [];
+                setHelpRequests(requests);
+                setTrackingLocations(
+                    requests.reduce((locations, request) => {
+                        if (request.liveLocation?.coordinates) {
+                            locations[request._id] = {
+                                location: request.liveLocation.coordinates,
+                                updatedAt: request.liveLocationUpdatedAt,
+                            };
+                        }
+                        return locations;
+                    }, {})
+                );
+            }
+        } catch (error) {
+            if (!cleanupRef.current) {
+                console.error("Failed to fetch help activity:", error);
+            }
+        }
+    }, [user?.userType]);
+
+    useEffect(() => {
+        void fetchHelpRequests();
+    }, [fetchHelpRequests]);
+
+    useEffect(() => {
+        if (user?.userType !== "mechanic") return undefined;
+
+        let socket;
+        let retryTimer;
+
+        const handleGarageRequest = (request) => {
+            if (cleanupRef.current) return;
+
+            setGarageRequests((current) => [
+                request,
+                ...current.filter(
+                    (item) => (item._id || item.requestId) !== request.requestId
+                ),
+            ]);
+            setRequestNotice(
+                `New request from ${request.requester?.fullName || "a customer"} for ${request.garageName}.`
+            );
+        };
+
+        const subscribe = () => {
+            socket = getSocket();
+            if (!socket) {
+                retryTimer = window.setTimeout(subscribe, 100);
+                return;
+            }
+
+            socket.on("garage_request_received", handleGarageRequest);
+        };
+
+        subscribe();
+        return () => {
+            if (retryTimer) window.clearTimeout(retryTimer);
+            socket?.off("garage_request_received", handleGarageRequest);
+        };
+    }, [user?.userType]);
+
+    useEffect(() => {
+        if (user?.userType !== "user") return undefined;
+
+        let socket;
+        let retryTimer;
+
+        const handleGarageRequestUpdate = (request) => {
+            if (cleanupRef.current) return;
+
+            setHelpRequests((current) =>
+                current.map((item) =>
+                    (item._id || item.requestId) === request.requestId
+                        ? { ...item, ...request }
+                        : item
+                )
+            );
+        };
+
+        const handleLocationUpdate = (update) => {
+            if (cleanupRef.current) return;
+
+            setTrackingLocations((current) => ({
+                ...current,
+                [update.requestId]: {
+                    location: update.location,
+                    updatedAt: update.updatedAt,
+                },
+            }));
+        };
+
+        const subscribe = () => {
+            socket = getSocket();
+            if (!socket) {
+                retryTimer = window.setTimeout(subscribe, 100);
+                return;
+            }
+
+            socket.on("garage_request_updated", handleGarageRequestUpdate);
+            socket.on("garage_request_location_updated", handleLocationUpdate);
+        };
+
+        subscribe();
+        return () => {
+            if (retryTimer) window.clearTimeout(retryTimer);
+            socket?.off("garage_request_updated", handleGarageRequestUpdate);
+            socket?.off(
+                "garage_request_location_updated",
+                handleLocationUpdate
+            );
+        };
+    }, [user?.userType]);
+
+    useEffect(() => {
+        if (user?.userType !== "mechanic") return undefined;
+
+        const activeRequestIds = garageRequests
+            .filter((request) => request.status === "accepted")
+            .map((request) => request._id || request.requestId)
+            .filter(Boolean);
+
+        if (activeRequestIds.length === 0) return undefined;
+
+        if (!navigator.geolocation) {
+            setTrackingError(
+                "Live location sharing is not supported by this browser."
+            );
+            return undefined;
+        }
+
+        const watchId = navigator.geolocation.watchPosition(
+            (position) => {
+                const now = Date.now();
+                if (now - lastLocationUpdateRef.current < 5000) return;
+                lastLocationUpdateRef.current = now;
+
+                const socket = getSocket();
+                if (!socket) return;
+
+                setTrackingError("");
+                const location = [
+                    position.coords.longitude,
+                    position.coords.latitude,
+                ];
+                activeRequestIds.forEach((requestId) => {
+                    socket.emit("share_garage_request_location", {
+                        requestId,
+                        location,
+                    });
+                });
+            },
+            (error) => {
+                if (!cleanupRef.current) {
+                    setTrackingError(
+                        error.code === 1
+                            ? "Allow location access to share your live position with the customer."
+                            : "Unable to update your live location right now."
+                    );
+                }
+            },
+            {
+                enableHighAccuracy: true,
+                maximumAge: 5000,
+                timeout: 10000,
+            }
+        );
+
+        return () => navigator.geolocation.clearWatch(watchId);
+    }, [garageRequests, user?.userType]);
+
+    useEffect(() => {
+        if (!cleanupRef.current) {
+            setIsAvailable(Boolean(user?.isAvailable));
+        }
+    }, [user?.isAvailable]);
+
+    useEffect(() => {
+        const handleAssistantAction = (event) => {
+            if (cleanupRef.current) return;
+
+            const action = event.detail;
+            if (!action?.type) return;
+
+            if (action.type === "navigate" && action.path) {
+                navigate(action.path);
+            }
+
+            if (action.type === "open_garage_manager") {
+                setShowGaragePage(true);
+            }
+        };
+
+        window.addEventListener(
+            "roadresq:assistant-action",
+            handleAssistantAction
+        );
+        return () => {
+            window.removeEventListener(
+                "roadresq:assistant-action",
+                handleAssistantAction
+            );
+        };
+    }, [navigate]);
+
+    const handleGarageSubmit = useCallback(
+        async (e) => {
+            e.preventDefault();
+            if (cleanupRef.current) return;
+
+            setGarageSuccess("");
+            setGarageError("");
+            try {
+                const response = await userAPI.addOrUpdateGarage(garageForm);
+                if (!cleanupRef.current) {
+                    setGarages(response.data.data);
+                    setGarageSuccess("Garage added successfully!");
+                    setGarageForm({ name: "", location: [0, 0] });
+                }
+            } catch (error) {
+                if (!cleanupRef.current) {
+                    setGarageError(
+                        error.response?.data?.message || "Failed to add garage"
+                    );
+                }
+            }
+        },
+        [garageForm]
     );
-  }
 
-  return (
-    <Box sx={{ px: { xs: 1, sm: 2 } }}>
-      <Typography 
-        variant={isMobile ? "h5" : "h4"} 
-        component="h1" 
-        gutterBottom
-        sx={{ 
-          fontSize: { xs: '1.5rem', sm: '2rem', md: '2.125rem' },
-          mb: { xs: 2, sm: 3 }
-        }}
-      >
-        Welcome, {user.fullName}!
-      </Typography>
+    const handleDeleteGarage = useCallback(async (index) => {
+        if (cleanupRef.current) return;
 
-      <Grid container spacing={{ xs: 2, sm: 3 }}>
-        {/* Profile Card */}
-        <Grid item xs={12} md={4}>
-          <Card elevation={2}>
-            <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <Box sx={{ width: '100%' }}>
-                  <Typography 
-                    variant={isMobile ? "h6" : "h6"}
-                    sx={{ fontSize: { xs: '1.1rem', sm: '1.25rem' } }}
-                  >
-                    {user.fullName}
-                  </Typography>
-                  <Typography 
-                    variant="body2" 
-                    color="text.secondary"
-                    sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}
-                  >
-                    @{user.username}
-                  </Typography>
-                  <Chip 
-                    label={user.userType} 
-                    color={user.userType === 'mechanic' ? 'primary' : 'default'}
-                    size="small"
-                    sx={{ 
-                      mt: 1,
-                      fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                    }}
-                  />
-                </Box>
-              </Box>
+        setDeletingIndex(index);
+        setGarageSuccess("");
+        setGarageError("");
+        try {
+            const response = await userAPI.deleteGarage(index);
+            if (!cleanupRef.current) {
+                setGarages(response.data.data);
+                setGarageSuccess("Garage deleted successfully!");
+            }
+        } catch (error) {
+            if (!cleanupRef.current) {
+                setGarageError(
+                    error.response?.data?.message || "Failed to delete garage"
+                );
+            }
+        } finally {
+            if (!cleanupRef.current) {
+                setDeletingIndex(null);
+            }
+        }
+    }, []);
 
-              {user.userType === 'mechanic' && (
-                <Box sx={{ mt: 2 }}>
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={isAvailable}
-                        onChange={handleAvailabilityChange}
-                        disabled={availabilityLoading}
-                      />
-                    }
-                    label={availabilityLoading ? 'Updating availability...' : `Availability ${isAvailable ? 'ON' : 'OFF'}`}
-                  />
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    fullWidth
-                    sx={{ 
-                      mt: 1,
-                      fontSize: { xs: '0.875rem', sm: '1rem' },
-                      py: { xs: 1, sm: 1.5 }
-                    }}
-                    onClick={() => setShowGaragePage(true)}
-                  >
-                    Add Garage
-                  </Button>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
+    const handleAvailabilityChange = useCallback(async (event) => {
+        if (cleanupRef.current) return;
 
-        {/* User Type Specific Content */}
-        <Grid item xs={12} md={8}>
-          {user.userType === 'mechanic' && showGaragePage ? (
-            <Card elevation={2}>
-              <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                {availabilityMessage && (
-                  <Alert severity="success" sx={{ mb: 2 }}>
-                    {availabilityMessage}
-                  </Alert>
-                )}
-                {availabilityError && (
-                  <Alert severity="error" sx={{ mb: 2 }}>
-                    {availabilityError}
-                  </Alert>
-                )}
-                <Typography 
-                  variant={isMobile ? "h6" : "h6"} 
-                  gutterBottom
-                  sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}
-                >
-                  Garage Management
+        const nextValue = event.target.checked;
+        setAvailabilityLoading(true);
+        setAvailabilityMessage("");
+        setAvailabilityError("");
+
+        try {
+            const response = await mechanicsAPI.updateAvailability(nextValue);
+            if (!cleanupRef.current) {
+                setIsAvailable(Boolean(response.data?.data?.isAvailable));
+                setAvailabilityMessage(
+                    `Availability is now ${response.data?.data?.isAvailable ? "ON" : "OFF"}.`
+                );
+            }
+        } catch (error) {
+            if (!cleanupRef.current) {
+                setAvailabilityError(
+                    error.response?.data?.message ||
+                        "Failed to update availability"
+                );
+            }
+        } finally {
+            if (!cleanupRef.current) {
+                setAvailabilityLoading(false);
+            }
+        }
+    }, []);
+
+    const handleGarageRequestResponse = useCallback(
+        async (request, status) => {
+            const requestId = request._id || request.requestId;
+            const eta = Number(requestEtas[requestId] || 30);
+
+            setRequestResponseLoading((current) => ({
+                ...current,
+                [requestId]: true,
+            }));
+            setRequestResponseError("");
+
+            try {
+                const response = await mechanicsAPI.updateGarageRequestStatus(
+                    requestId,
+                    status === "accepted"
+                        ? { status, estimatedArrivalMinutes: eta }
+                        : { status }
+                );
+                if (!cleanupRef.current) {
+                    const updatedRequest = response.data?.data;
+                    setGarageRequests((current) =>
+                        current.map((item) =>
+                            (item._id || item.requestId) === requestId
+                                ? { ...item, ...updatedRequest }
+                                : item
+                        )
+                    );
+                }
+            } catch (error) {
+                if (!cleanupRef.current) {
+                    setRequestResponseError(
+                        error.response?.data?.message ||
+                            "Unable to update the garage request"
+                    );
+                }
+            } finally {
+                if (!cleanupRef.current) {
+                    setRequestResponseLoading((current) => ({
+                        ...current,
+                        [requestId]: false,
+                    }));
+                }
+            }
+        },
+        [requestEtas]
+    );
+
+    if (!user) {
+        return (
+            <Box sx={{ textAlign: "center", py: 4 }}>
+                <Typography variant="h6">
+                    Please log in to view your dashboard
                 </Typography>
-                {garageSuccess && (
-                  <Alert 
-                    severity="success" 
-                    sx={{ 
-                      mb: 2,
-                      fontSize: { xs: '0.875rem', sm: '1rem' }
+            </Box>
+        );
+    }
+
+    if (user.userType !== "mechanic") {
+        return (
+            <Box
+                sx={{
+                    textAlign: "center",
+                    py: { xs: 2, sm: 4 },
+                    px: { xs: 2, sm: 0 },
+                }}
+            >
+                <Typography
+                    variant={isMobile ? "h5" : "h4"}
+                    gutterBottom
+                    sx={{
+                        fontSize: { xs: "1.5rem", sm: "2rem", md: "2.125rem" },
+                        mb: { xs: 2, sm: 4 },
                     }}
-                  >
-                    {garageSuccess}
-                  </Alert>
-                )}
-                {garageError && (
-                  <Alert 
-                    severity="error" 
-                    sx={{ 
-                      mb: 2,
-                      fontSize: { xs: '0.875rem', sm: '1rem' }
+                >
+                    Welcome, {user.fullName}!
+                </Typography>
+                <Box
+                    sx={{
+                        mt: { xs: 2, sm: 4 },
+                        display: "flex",
+                        flexDirection: { xs: "column", sm: "row" },
+                        justifyContent: "center",
+                        gap: 2,
                     }}
-                  >
-                    {garageError}
-                  </Alert>
-                )}
-                <Box component="form" onSubmit={handleGarageSubmit}>
-                  <TextField
-                    required
-                    fullWidth
-                    label="Garage Name"
-                    name="name"
-                    value={garageForm.name}
-                    onChange={handleGarageInputChange}
-                    sx={{ 
-                      mb: 2,
-                      '& .MuiInputLabel-root': {
-                        fontSize: { xs: '0.875rem', sm: '1rem' }
-                      },
-                      '& .MuiInputBase-input': {
-                        fontSize: { xs: '0.875rem', sm: '1rem' }
-                      }
-                    }}
-                    size={isMobile ? "small" : "medium"}
-                  />
-                  <Grid container spacing={2}>
-                    <Grid item xs={6}>
-                      <TextField
-                        required
-                        fullWidth
-                        label="Longitude"
-                        name="lng"
-                        type="number"
-                        value={garageForm.location[0]}
-                        onChange={(e) => handleGarageLocationChange(e, 0)}
-                        size={isMobile ? "small" : "medium"}
-                        sx={{
-                          '& .MuiInputLabel-root': {
-                            fontSize: { xs: '0.875rem', sm: '1rem' }
-                          },
-                          '& .MuiInputBase-input': {
-                            fontSize: { xs: '0.875rem', sm: '1rem' }
-                          }
-                        }}
-                      />
-                    </Grid>
-                    <Grid item xs={6}>
-                      <TextField
-                        required
-                        fullWidth
-                        label="Latitude"
-                        name="lat"
-                        type="number"
-                        value={garageForm.location[1]}
-                        onChange={(e) => handleGarageLocationChange(e, 1)}
-                        size={isMobile ? "small" : "medium"}
-                        sx={{
-                          '& .MuiInputLabel-root': {
-                            fontSize: { xs: '0.875rem', sm: '1rem' }
-                          },
-                          '& .MuiInputBase-input': {
-                            fontSize: { xs: '0.875rem', sm: '1rem' }
-                          }
-                        }}
-                      />
-                    </Grid>
-                  </Grid>
-                  <Box sx={{ 
-                    display: 'flex',
-                    flexDirection: { xs: 'column', sm: 'row' },
-                    gap: { xs: 1, sm: 2 },
-                    mt: 2
-                  }}>
+                >
                     <Button
-                      variant="outlined"
-                      onClick={handleUseMyLocation}
-                      type="button"
-                      disabled={locatingGarage}
-                      size={isMobile ? "small" : "medium"}
-                      sx={{ 
-                        fontSize: { xs: '0.875rem', sm: '1rem' }
-                      }}
+                        variant="contained"
+                        size={isMobile ? "large" : "large"}
+                        color="primary"
+                        sx={{
+                            fontSize: { xs: "1rem", sm: "1.1rem" },
+                            py: { xs: 1.5, sm: 2 },
+                            px: { xs: 3, sm: 4 },
+                        }}
+                        onClick={() => navigate("/nearby-mechanics")}
                     >
-                      {locatingGarage ? 'Getting Location...' : 'Use My Location'}
+                        Search Nearby Garage
                     </Button>
                     <Button
-                      type="submit"
-                      variant="contained"
-                      size={isMobile ? "small" : "medium"}
-                      sx={{ 
-                        fontSize: { xs: '0.875rem', sm: '1rem' }
-                      }}
+                        variant="outlined"
+                        size={isMobile ? "large" : "large"}
+                        sx={{
+                            fontSize: { xs: "1rem", sm: "1.1rem" },
+                            py: { xs: 1.5, sm: 2 },
+                            px: { xs: 3, sm: 4 },
+                        }}
+                        onClick={() => navigate("/chat")}
                     >
-                      Add Garage
+                        Open Messages
                     </Button>
-                  </Box>
                 </Box>
-                <Divider sx={{ my: 3 }} />
-                <Typography 
-                  variant={isMobile ? "h6" : "h6"} 
-                  gutterBottom
-                  sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}
+
+                <Card
+                    elevation={2}
+                    sx={{ mt: 4, textAlign: "left", maxWidth: 960, mx: "auto" }}
                 >
-                  Saved Garages
-                </Typography>
-                {garages.length === 0 && !loadingGarages ? (
-                  <Typography sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}>
-                    No garages added yet.
-                  </Typography>
-                ) : loadingGarages ? (
-                  <Typography sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}>
-                    Loading garages...
-                  </Typography>
-                ) : (
-                  garages.map((garage, idx) => {
-                    const ratings = garage.ratings || [];
-                    const avgRating = garage.averageRating !== undefined ? garage.averageRating : 
-                      (ratings.length > 0 ? (ratings.reduce((sum, r) => sum + r.value, 0) / ratings.length) : 0);
-                    return (
-                      <Card key={garage._id || idx} elevation={3} sx={{ 
-                        mb: 3, 
-                        p: { xs: 1, sm: 2 }, 
-                        borderRadius: 3, 
-                        boxShadow: 3 
-                      }}>
-                        <CardContent sx={{ p: { xs: 1, sm: 2 } }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <Box>
-                              <Typography 
-                                variant={isMobile ? "h6" : "h6"} 
-                                sx={{ 
-                                  mb: 1,
-                                  fontSize: { xs: '1.1rem', sm: '1.25rem' }
-                                }}
-                              >
-                                {garage.name}
-                              </Typography>
-                              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                                <LocationOn fontSize="small" sx={{ mr: 1 }} />
-                                <Typography 
-                                  variant="body2"
-                                  sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}
-                                >
-                                  Longitude: {garage.location.coordinates[0]}, Latitude: {garage.location.coordinates[1]}
-                                </Typography>
-                              </Box>
-                              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                                <Typography 
-                                  variant="body2" 
-                                  sx={{ 
-                                    mr: 1,
-                                    fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                                  }}
-                                >
-                                  Average Rating:
-                                </Typography>
-                                <Rating 
-                                  value={avgRating} 
-                                  precision={0.1} 
-                                  readOnly 
-                                  size={isMobile ? "small" : "small"} 
-                                />
-                                <Typography 
-                                  variant="body2" 
-                                  sx={{ 
-                                    ml: 1,
-                                    fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                                  }}
-                                >
-                                  ({avgRating.toFixed(1)}) ({ratings.length} {ratings.length === 1 ? 'rating' : 'ratings'})
-                                </Typography>
-                              </Box>
-                            </Box>
-                            <Button
-                              variant="outlined"
-                              color="error"
-                              size={isMobile ? "small" : "small"}
-                              disabled={deletingIndex === idx}
-                              onClick={() => handleDeleteGarage(idx)}
-                              sx={{ 
-                                fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                              }}
-                            >
-                              {deletingIndex === idx ? 'Deleting...' : 'Delete'}
-                            </Button>
-                          </Box>
-                          <Divider sx={{ my: 2 }} />
-                        </CardContent>
-                      </Card>
-                    );
-                  })
-                )}
-                <Button
-                  variant="outlined"
-                  sx={{ 
-                    mt: 2,
-                    fontSize: { xs: '0.875rem', sm: '1rem' }
-                  }}
-                  onClick={() => setShowGaragePage(false)}
-                >
-                  Back to Dashboard
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card elevation={2}>
-              <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                {availabilityMessage && (
-                  <Alert severity="success" sx={{ mb: 2 }}>
-                    {availabilityMessage}
-                  </Alert>
-                )}
-                {availabilityError && (
-                  <Alert severity="error" sx={{ mb: 2 }}>
-                    {availabilityError}
-                  </Alert>
-                )}
-                <Typography 
-                  variant={isMobile ? "h6" : "h6"} 
-                  gutterBottom
-                  sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}
-                >
-                  Mechanic Dashboard
-                </Typography>
-                {requestNotice && (
-                  <Alert severity="info" onClose={() => setRequestNotice('')} sx={{ mb: 2 }}>
-                    {requestNotice}
-                  </Alert>
-                )}
-                {requestResponseError && (
-                  <Alert severity="error" sx={{ mb: 2 }}>
-                    {requestResponseError}
-                  </Alert>
-                )}
-                {trackingError && (
-                  <Alert severity="warning" sx={{ mb: 2 }}>
-                    {trackingError}
-                  </Alert>
-                )}
-                <Typography variant={isMobile ? "h6" : "h6"} gutterBottom>
-                  Incoming Requests
-                </Typography>
-                {garageRequests.length === 0 ? (
-                  <Typography color="text.secondary" sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}>
-                    No incoming requests yet.
-                  </Typography>
-                ) : (
-                  garageRequests.map((request) => {
-                    const requestId = request._id || request.requestId;
-                    const requester = request.requester || {};
-                    return (
-                      <Card key={requestId} variant="outlined" sx={{ mb: 1.5 }}>
-                        <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
-                          <Typography variant="subtitle1" fontWeight="bold">
-                            {request.garageName}
-                          </Typography>
-                          <Typography variant="body2">
-                            {requester.fullName || requester.username || 'Customer'}: {request.description}
-                          </Typography>
-                          {request.location?.coordinates && (
-                            <Typography variant="caption" color="text.secondary">
-                              Location: {request.location.coordinates[1].toFixed(4)}, {request.location.coordinates[0].toFixed(4)}
+                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+                        <Typography variant="h6" gutterBottom>
+                            Help Activity
+                        </Typography>
+                        {helpRequests.length === 0 ? (
+                            <Typography color="text.secondary">
+                                You do not have any help requests yet.
                             </Typography>
-                          )}
-                          {Array.isArray(request.location) && (
-                            <Typography variant="caption" color="text.secondary">
-                              Location: {request.location[1].toFixed(4)}, {request.location[0].toFixed(4)}
-                            </Typography>
-                          )}
-                          {request.status === 'pending' ? (
-                            <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mt: 1.5 }}>
-                              <TextField
-                                label="ETA (minutes)"
-                                type="number"
-                                size="small"
-                                value={requestEtas[requestId] || 30}
-                                onChange={(event) => setRequestEtas((current) => ({
-                                  ...current,
-                                  [requestId]: event.target.value,
-                                }))}
-                                inputProps={{ min: 1, max: 1440 }}
-                                disabled={requestResponseLoading[requestId]}
-                              />
-                              <Button
-                                variant="contained"
-                                size="small"
-                                disabled={requestResponseLoading[requestId]}
-                                onClick={() => handleGarageRequestResponse(request, 'accepted')}
-                              >
-                                Accept & Send ETA
-                              </Button>
-                              <Button
-                                variant="outlined"
-                                color="error"
-                                size="small"
-                                disabled={requestResponseLoading[requestId]}
-                                onClick={() => handleGarageRequestResponse(request, 'declined')}
-                              >
-                                Decline
-                              </Button>
-                            </Box>
-                          ) : request.status === 'accepted' ? (
-                            <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mt: 1.5 }}>
-                              <TextField
-                                label="ETA (minutes)"
-                                type="number"
-                                size="small"
-                                value={requestEtas[requestId] ?? request.estimatedArrivalMinutes}
-                                onChange={(event) => setRequestEtas((current) => ({
-                                  ...current,
-                                  [requestId]: event.target.value,
-                                }))}
-                                inputProps={{ min: 1, max: 1440 }}
-                                disabled={requestResponseLoading[requestId]}
-                              />
-                              <Button
-                                variant="contained"
-                                size="small"
-                                disabled={requestResponseLoading[requestId]}
-                                onClick={() => handleGarageRequestResponse(request, 'accepted')}
-                              >
-                                Update ETA
-                              </Button>
-                              <Chip color="success" size="small" label="Live location sharing on" />
-                            </Box>
-                          ) : (
-                            <Chip
-                              sx={{ mt: 1.5 }}
-                              size="small"
-                              color={request.status === 'accepted' ? 'success' : 'default'}
-                              label={request.status === 'accepted'
-                                ? `Accepted — ETA ${request.estimatedArrivalMinutes} min`
-                                : request.status}
-                            />
-                          )}
-                        </CardContent>
-                      </Card>
-                    );
-                  })
-                )}
-                <Divider sx={{ my: 3 }} />
-                <Typography 
-                  variant={isMobile ? "h6" : "h6"} 
-                  gutterBottom
-                  sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}
+                        ) : (
+                            helpRequests.map((request) => {
+                                const requestId =
+                                    request._id || request.requestId;
+                                const mechanic = request.mechanic || {};
+                                const liveTracking =
+                                    trackingLocations[requestId] ||
+                                    (request.liveLocation?.coordinates
+                                        ?.length === 2
+                                        ? {
+                                              location:
+                                                  request.liveLocation
+                                                      .coordinates,
+                                              updatedAt:
+                                                  request.liveLocationUpdatedAt,
+                                          }
+                                        : null);
+                                const statusColor =
+                                    request.status === "accepted"
+                                        ? "success"
+                                        : request.status === "declined"
+                                          ? "error"
+                                          : "warning";
+                                const statusMessage =
+                                    request.status === "accepted"
+                                        ? `${mechanic.fullName || "The garage"} will provide aid in about ${request.estimatedArrivalMinutes} minutes.`
+                                        : request.status === "declined"
+                                          ? "This garage cannot take your request right now."
+                                          : "Your request has been sent. The garage is reviewing it.";
+
+                                return (
+                                    <Card
+                                        key={request._id || request.requestId}
+                                        variant="outlined"
+                                        sx={{ mb: 1.5 }}
+                                    >
+                                        <CardContent
+                                            sx={{
+                                                p: { xs: 1.5, sm: 2 },
+                                                "&:last-child": {
+                                                    pb: { xs: 1.5, sm: 2 },
+                                                },
+                                            }}
+                                        >
+                                            <Box
+                                                sx={{
+                                                    display: "flex",
+                                                    justifyContent:
+                                                        "space-between",
+                                                    gap: 1,
+                                                    alignItems: "center",
+                                                }}
+                                            >
+                                                <Typography
+                                                    variant="subtitle1"
+                                                    fontWeight="bold"
+                                                >
+                                                    {request.garageName}
+                                                </Typography>
+                                                <Chip
+                                                    label={request.status}
+                                                    color={statusColor}
+                                                    size="small"
+                                                />
+                                            </Box>
+                                            <Typography
+                                                variant="body2"
+                                                sx={{ mt: 1 }}
+                                            >
+                                                {statusMessage}
+                                            </Typography>
+                                            <Typography
+                                                variant="caption"
+                                                color="text.secondary"
+                                            >
+                                                Request: {request.description}
+                                            </Typography>
+                                            {request.status === "accepted" && (
+                                                <Box sx={{ mt: 2 }}>
+                                                    <Typography
+                                                        variant="subtitle2"
+                                                        color="success.main"
+                                                    >
+                                                        Live mechanic tracking
+                                                    </Typography>
+                                                    {liveTracking?.location
+                                                        ?.length === 2 ? (
+                                                        <>
+                                                            <LiveTrackingMap
+                                                                customerLocation={
+                                                                    request
+                                                                        .location
+                                                                        ?.coordinates
+                                                                }
+                                                                mechanicLocation={
+                                                                    liveTracking.location
+                                                                }
+                                                            />
+                                                            <Typography
+                                                                variant="caption"
+                                                                color="text.secondary"
+                                                                sx={{
+                                                                    display:
+                                                                        "block",
+                                                                    mt: 1,
+                                                                }}
+                                                            >
+                                                                Live position
+                                                                updated{" "}
+                                                                {liveTracking.updatedAt
+                                                                    ? new Date(
+                                                                          liveTracking.updatedAt
+                                                                      ).toLocaleTimeString()
+                                                                    : "just now"}
+                                                            </Typography>
+                                                        </>
+                                                    ) : (
+                                                        <Typography
+                                                            variant="body2"
+                                                            color="text.secondary"
+                                                            sx={{ mt: 0.5 }}
+                                                        >
+                                                            Waiting for the
+                                                            mechanic to begin
+                                                            live location
+                                                            sharing.
+                                                        </Typography>
+                                                    )}
+                                                </Box>
+                                            )}
+                                        </CardContent>
+                                    </Card>
+                                );
+                            })
+                        )}
+                    </CardContent>
+                </Card>
+
+                <Card
+                    elevation={2}
+                    sx={{ mt: 4, textAlign: "left", maxWidth: 960, mx: "auto" }}
                 >
-                  Saved Garages
-                </Typography>
-                {garages.length === 0 && !loadingGarages ? (
-                  <Typography sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}>
-                    No garages added yet.
-                  </Typography>
-                ) : loadingGarages ? (
-                  <Typography sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}>
-                    Loading garages...
-                  </Typography>
-                ) : (
-                  garages.map((garage, idx) => {
-                    const ratings = garage.ratings || [];
-                    const avgRating = garage.averageRating !== undefined ? garage.averageRating : 
-                      (ratings.length > 0 ? (ratings.reduce((sum, r) => sum + r.value, 0) / ratings.length) : 0);
-                    return (
-                      <Card key={garage._id || idx} elevation={3} sx={{ 
-                        mb: 3, 
-                        p: { xs: 1, sm: 2 }, 
-                        borderRadius: 3, 
-                        boxShadow: 3 
-                      }}>
-                        <CardContent sx={{ p: { xs: 1, sm: 2 } }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <Box>
-                              <Typography 
-                                variant={isMobile ? "h6" : "h6"} 
-                                sx={{ 
-                                  mb: 1,
-                                  fontSize: { xs: '1.1rem', sm: '1.25rem' }
+                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+                        <AIRoadsideAssistant />
+                    </CardContent>
+                </Card>
+            </Box>
+        );
+    }
+
+    return (
+        <Box sx={{ px: { xs: 1, sm: 2 } }}>
+            <Typography
+                variant={isMobile ? "h5" : "h4"}
+                component="h1"
+                gutterBottom
+                sx={{
+                    fontSize: { xs: "1.5rem", sm: "2rem", md: "2.125rem" },
+                    mb: { xs: 2, sm: 3 },
+                }}
+            >
+                Welcome, {user.fullName}!
+            </Typography>
+
+            <Grid container spacing={{ xs: 2, sm: 3 }}>
+                {/* Profile Card */}
+                <Grid item xs={12} md={4}>
+                    <Card elevation={2}>
+                        <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+                            <Box
+                                sx={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    mb: 2,
                                 }}
-                              >
-                                {garage.name}
-                              </Typography>
-                              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                                <LocationOn fontSize="small" sx={{ mr: 1 }} />
-                                <Typography 
-                                  variant="body2"
-                                  sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}
-                                >
-                                  Longitude: {garage.location.coordinates[0]}, Latitude: {garage.location.coordinates[1]}
-                                </Typography>
-                              </Box>
-                              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                                <Typography 
-                                  variant="body2" 
-                                  sx={{ 
-                                    mr: 1,
-                                    fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                                  }}
-                                >
-                                  Average Rating:
-                                </Typography>
-                                <Rating 
-                                  value={avgRating} 
-                                  precision={0.1} 
-                                  readOnly 
-                                  size={isMobile ? "small" : "small"} 
-                                />
-                                <Typography 
-                                  variant="body2" 
-                                  sx={{ 
-                                    ml: 1,
-                                    fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                                  }}
-                                >
-                                  ({avgRating.toFixed(1)}) ({ratings.length} {ratings.length === 1 ? 'rating' : 'ratings'})
-                                </Typography>
-                              </Box>
-                            </Box>
-                            <Button
-                              variant="outlined"
-                              color="error"
-                              size={isMobile ? "small" : "small"}
-                              disabled={deletingIndex === idx}
-                              onClick={() => handleDeleteGarage(idx)}
-                              sx={{ 
-                                fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                              }}
                             >
-                              {deletingIndex === idx ? 'Deleting...' : 'Delete'}
-                            </Button>
-                          </Box>
-                          <Divider sx={{ my: 2 }} />
+                                <Box sx={{ width: "100%" }}>
+                                    <Typography
+                                        variant={isMobile ? "h6" : "h6"}
+                                        sx={{
+                                            fontSize: {
+                                                xs: "1.1rem",
+                                                sm: "1.25rem",
+                                            },
+                                        }}
+                                    >
+                                        {user.fullName}
+                                    </Typography>
+                                    <Typography
+                                        variant="body2"
+                                        color="text.secondary"
+                                        sx={{
+                                            fontSize: {
+                                                xs: "0.875rem",
+                                                sm: "1rem",
+                                            },
+                                        }}
+                                    >
+                                        @{user.username}
+                                    </Typography>
+                                    <Chip
+                                        label={user.userType}
+                                        color={
+                                            user.userType === "mechanic"
+                                                ? "primary"
+                                                : "default"
+                                        }
+                                        size="small"
+                                        sx={{
+                                            mt: 1,
+                                            fontSize: {
+                                                xs: "0.75rem",
+                                                sm: "0.875rem",
+                                            },
+                                        }}
+                                    />
+                                </Box>
+                            </Box>
+
+                            {user.userType === "mechanic" && (
+                                <Box sx={{ mt: 2 }}>
+                                    <FormControlLabel
+                                        control={
+                                            <Switch
+                                                checked={isAvailable}
+                                                onChange={
+                                                    handleAvailabilityChange
+                                                }
+                                                disabled={availabilityLoading}
+                                            />
+                                        }
+                                        label={
+                                            availabilityLoading
+                                                ? "Updating availability..."
+                                                : `Availability ${isAvailable ? "ON" : "OFF"}`
+                                        }
+                                    />
+                                    <Button
+                                        variant="contained"
+                                        color="primary"
+                                        fullWidth
+                                        sx={{
+                                            mt: 1,
+                                            fontSize: {
+                                                xs: "0.875rem",
+                                                sm: "1rem",
+                                            },
+                                            py: { xs: 1, sm: 1.5 },
+                                        }}
+                                        onClick={() => setShowGaragePage(true)}
+                                    >
+                                        Add Garage
+                                    </Button>
+                                </Box>
+                            )}
                         </CardContent>
-                      </Card>
-                    );
-                  })
-                )}
-              </CardContent>
-            </Card>
-          )}
-        </Grid>
-        <Grid item xs={12}>
-          <Card elevation={2}>
-            <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-              <AIRoadsideAssistant />
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-    </Box>
-  );
+                    </Card>
+                </Grid>
+
+                {/* User Type Specific Content */}
+                <Grid item xs={12} md={8}>
+                    {user.userType === "mechanic" && showGaragePage ? (
+                        <Card elevation={2}>
+                            <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+                                {availabilityMessage && (
+                                    <Alert severity="success" sx={{ mb: 2 }}>
+                                        {availabilityMessage}
+                                    </Alert>
+                                )}
+                                {availabilityError && (
+                                    <Alert severity="error" sx={{ mb: 2 }}>
+                                        {availabilityError}
+                                    </Alert>
+                                )}
+                                <Typography
+                                    variant={isMobile ? "h6" : "h6"}
+                                    gutterBottom
+                                    sx={{
+                                        fontSize: {
+                                            xs: "1.25rem",
+                                            sm: "1.5rem",
+                                        },
+                                    }}
+                                >
+                                    Garage Management
+                                </Typography>
+                                {garageSuccess && (
+                                    <Alert
+                                        severity="success"
+                                        sx={{
+                                            mb: 2,
+                                            fontSize: {
+                                                xs: "0.875rem",
+                                                sm: "1rem",
+                                            },
+                                        }}
+                                    >
+                                        {garageSuccess}
+                                    </Alert>
+                                )}
+                                {garageError && (
+                                    <Alert
+                                        severity="error"
+                                        sx={{
+                                            mb: 2,
+                                            fontSize: {
+                                                xs: "0.875rem",
+                                                sm: "1rem",
+                                            },
+                                        }}
+                                    >
+                                        {garageError}
+                                    </Alert>
+                                )}
+                                <Box
+                                    component="form"
+                                    onSubmit={handleGarageSubmit}
+                                >
+                                    <TextField
+                                        required
+                                        fullWidth
+                                        label="Garage Name"
+                                        name="name"
+                                        value={garageForm.name}
+                                        onChange={handleGarageInputChange}
+                                        sx={{
+                                            mb: 2,
+                                            "& .MuiInputLabel-root": {
+                                                fontSize: {
+                                                    xs: "0.875rem",
+                                                    sm: "1rem",
+                                                },
+                                            },
+                                            "& .MuiInputBase-input": {
+                                                fontSize: {
+                                                    xs: "0.875rem",
+                                                    sm: "1rem",
+                                                },
+                                            },
+                                        }}
+                                        size={isMobile ? "small" : "medium"}
+                                    />
+                                    <Grid container spacing={2}>
+                                        <Grid item xs={6}>
+                                            <TextField
+                                                required
+                                                fullWidth
+                                                label="Longitude"
+                                                name="lng"
+                                                type="number"
+                                                value={garageForm.location[0]}
+                                                onChange={(e) =>
+                                                    handleGarageLocationChange(
+                                                        e,
+                                                        0
+                                                    )
+                                                }
+                                                size={
+                                                    isMobile
+                                                        ? "small"
+                                                        : "medium"
+                                                }
+                                                sx={{
+                                                    "& .MuiInputLabel-root": {
+                                                        fontSize: {
+                                                            xs: "0.875rem",
+                                                            sm: "1rem",
+                                                        },
+                                                    },
+                                                    "& .MuiInputBase-input": {
+                                                        fontSize: {
+                                                            xs: "0.875rem",
+                                                            sm: "1rem",
+                                                        },
+                                                    },
+                                                }}
+                                            />
+                                        </Grid>
+                                        <Grid item xs={6}>
+                                            <TextField
+                                                required
+                                                fullWidth
+                                                label="Latitude"
+                                                name="lat"
+                                                type="number"
+                                                value={garageForm.location[1]}
+                                                onChange={(e) =>
+                                                    handleGarageLocationChange(
+                                                        e,
+                                                        1
+                                                    )
+                                                }
+                                                size={
+                                                    isMobile
+                                                        ? "small"
+                                                        : "medium"
+                                                }
+                                                sx={{
+                                                    "& .MuiInputLabel-root": {
+                                                        fontSize: {
+                                                            xs: "0.875rem",
+                                                            sm: "1rem",
+                                                        },
+                                                    },
+                                                    "& .MuiInputBase-input": {
+                                                        fontSize: {
+                                                            xs: "0.875rem",
+                                                            sm: "1rem",
+                                                        },
+                                                    },
+                                                }}
+                                            />
+                                        </Grid>
+                                    </Grid>
+                                    <Box
+                                        sx={{
+                                            display: "flex",
+                                            flexDirection: {
+                                                xs: "column",
+                                                sm: "row",
+                                            },
+                                            gap: { xs: 1, sm: 2 },
+                                            mt: 2,
+                                        }}
+                                    >
+                                        <Button
+                                            variant="outlined"
+                                            onClick={handleUseMyLocation}
+                                            type="button"
+                                            disabled={locatingGarage}
+                                            size={isMobile ? "small" : "medium"}
+                                            sx={{
+                                                fontSize: {
+                                                    xs: "0.875rem",
+                                                    sm: "1rem",
+                                                },
+                                            }}
+                                        >
+                                            {locatingGarage
+                                                ? "Getting Location..."
+                                                : "Use My Location"}
+                                        </Button>
+                                        <Button
+                                            type="submit"
+                                            variant="contained"
+                                            size={isMobile ? "small" : "medium"}
+                                            sx={{
+                                                fontSize: {
+                                                    xs: "0.875rem",
+                                                    sm: "1rem",
+                                                },
+                                            }}
+                                        >
+                                            Add Garage
+                                        </Button>
+                                    </Box>
+                                </Box>
+                                <Divider sx={{ my: 3 }} />
+                                <Typography
+                                    variant={isMobile ? "h6" : "h6"}
+                                    gutterBottom
+                                    sx={{
+                                        fontSize: {
+                                            xs: "1.25rem",
+                                            sm: "1.5rem",
+                                        },
+                                    }}
+                                >
+                                    Saved Garages
+                                </Typography>
+                                {garages.length === 0 && !loadingGarages ? (
+                                    <Typography
+                                        sx={{
+                                            fontSize: {
+                                                xs: "0.875rem",
+                                                sm: "1rem",
+                                            },
+                                        }}
+                                    >
+                                        No garages added yet.
+                                    </Typography>
+                                ) : loadingGarages ? (
+                                    <Typography
+                                        sx={{
+                                            fontSize: {
+                                                xs: "0.875rem",
+                                                sm: "1rem",
+                                            },
+                                        }}
+                                    >
+                                        Loading garages...
+                                    </Typography>
+                                ) : (
+                                    garages.map((garage, idx) => {
+                                        const ratings = garage.ratings || [];
+                                        const avgRating =
+                                            garage.averageRating !== undefined
+                                                ? garage.averageRating
+                                                : ratings.length > 0
+                                                  ? ratings.reduce(
+                                                        (sum, r) =>
+                                                            sum + r.value,
+                                                        0
+                                                    ) / ratings.length
+                                                  : 0;
+                                        return (
+                                            <Card
+                                                key={garage._id || idx}
+                                                elevation={3}
+                                                sx={{
+                                                    mb: 3,
+                                                    p: { xs: 1, sm: 2 },
+                                                    borderRadius: 3,
+                                                    boxShadow: 3,
+                                                }}
+                                            >
+                                                <CardContent
+                                                    sx={{ p: { xs: 1, sm: 2 } }}
+                                                >
+                                                    <Box
+                                                        sx={{
+                                                            display: "flex",
+                                                            alignItems:
+                                                                "center",
+                                                            justifyContent:
+                                                                "space-between",
+                                                        }}
+                                                    >
+                                                        <Box>
+                                                            <Typography
+                                                                variant={
+                                                                    isMobile
+                                                                        ? "h6"
+                                                                        : "h6"
+                                                                }
+                                                                sx={{
+                                                                    mb: 1,
+                                                                    fontSize: {
+                                                                        xs: "1.1rem",
+                                                                        sm: "1.25rem",
+                                                                    },
+                                                                }}
+                                                            >
+                                                                {garage.name}
+                                                            </Typography>
+                                                            <Box
+                                                                sx={{
+                                                                    display:
+                                                                        "flex",
+                                                                    alignItems:
+                                                                        "center",
+                                                                    mb: 1,
+                                                                }}
+                                                            >
+                                                                <LocationOn
+                                                                    fontSize="small"
+                                                                    sx={{
+                                                                        mr: 1,
+                                                                    }}
+                                                                />
+                                                                <Typography
+                                                                    variant="body2"
+                                                                    sx={{
+                                                                        fontSize:
+                                                                            {
+                                                                                xs: "0.75rem",
+                                                                                sm: "0.875rem",
+                                                                            },
+                                                                    }}
+                                                                >
+                                                                    Longitude:{" "}
+                                                                    {
+                                                                        garage
+                                                                            .location
+                                                                            .coordinates[0]
+                                                                    }
+                                                                    , Latitude:{" "}
+                                                                    {
+                                                                        garage
+                                                                            .location
+                                                                            .coordinates[1]
+                                                                    }
+                                                                </Typography>
+                                                            </Box>
+                                                            <Box
+                                                                sx={{
+                                                                    display:
+                                                                        "flex",
+                                                                    alignItems:
+                                                                        "center",
+                                                                    mb: 1,
+                                                                }}
+                                                            >
+                                                                <Typography
+                                                                    variant="body2"
+                                                                    sx={{
+                                                                        mr: 1,
+                                                                        fontSize:
+                                                                            {
+                                                                                xs: "0.75rem",
+                                                                                sm: "0.875rem",
+                                                                            },
+                                                                    }}
+                                                                >
+                                                                    Average
+                                                                    Rating:
+                                                                </Typography>
+                                                                <Rating
+                                                                    value={
+                                                                        avgRating
+                                                                    }
+                                                                    precision={
+                                                                        0.1
+                                                                    }
+                                                                    readOnly
+                                                                    size={
+                                                                        isMobile
+                                                                            ? "small"
+                                                                            : "small"
+                                                                    }
+                                                                />
+                                                                <Typography
+                                                                    variant="body2"
+                                                                    sx={{
+                                                                        ml: 1,
+                                                                        fontSize:
+                                                                            {
+                                                                                xs: "0.75rem",
+                                                                                sm: "0.875rem",
+                                                                            },
+                                                                    }}
+                                                                >
+                                                                    (
+                                                                    {avgRating.toFixed(
+                                                                        1
+                                                                    )}
+                                                                    ) (
+                                                                    {
+                                                                        ratings.length
+                                                                    }{" "}
+                                                                    {ratings.length ===
+                                                                    1
+                                                                        ? "rating"
+                                                                        : "ratings"}
+                                                                    )
+                                                                </Typography>
+                                                            </Box>
+                                                        </Box>
+                                                        <Button
+                                                            variant="outlined"
+                                                            color="error"
+                                                            size={
+                                                                isMobile
+                                                                    ? "small"
+                                                                    : "small"
+                                                            }
+                                                            disabled={
+                                                                deletingIndex ===
+                                                                idx
+                                                            }
+                                                            onClick={() =>
+                                                                handleDeleteGarage(
+                                                                    idx
+                                                                )
+                                                            }
+                                                            sx={{
+                                                                fontSize: {
+                                                                    xs: "0.75rem",
+                                                                    sm: "0.875rem",
+                                                                },
+                                                            }}
+                                                        >
+                                                            {deletingIndex ===
+                                                            idx
+                                                                ? "Deleting..."
+                                                                : "Delete"}
+                                                        </Button>
+                                                    </Box>
+                                                    <Divider sx={{ my: 2 }} />
+                                                </CardContent>
+                                            </Card>
+                                        );
+                                    })
+                                )}
+                                <Button
+                                    variant="outlined"
+                                    sx={{
+                                        mt: 2,
+                                        fontSize: {
+                                            xs: "0.875rem",
+                                            sm: "1rem",
+                                        },
+                                    }}
+                                    onClick={() => setShowGaragePage(false)}
+                                >
+                                    Back to Dashboard
+                                </Button>
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <Card elevation={2}>
+                            <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+                                {availabilityMessage && (
+                                    <Alert severity="success" sx={{ mb: 2 }}>
+                                        {availabilityMessage}
+                                    </Alert>
+                                )}
+                                {availabilityError && (
+                                    <Alert severity="error" sx={{ mb: 2 }}>
+                                        {availabilityError}
+                                    </Alert>
+                                )}
+                                <Typography
+                                    variant={isMobile ? "h6" : "h6"}
+                                    gutterBottom
+                                    sx={{
+                                        fontSize: {
+                                            xs: "1.25rem",
+                                            sm: "1.5rem",
+                                        },
+                                    }}
+                                >
+                                    Mechanic Dashboard
+                                </Typography>
+                                {requestNotice && (
+                                    <Alert
+                                        severity="info"
+                                        onClose={() => setRequestNotice("")}
+                                        sx={{ mb: 2 }}
+                                    >
+                                        {requestNotice}
+                                    </Alert>
+                                )}
+                                {requestResponseError && (
+                                    <Alert severity="error" sx={{ mb: 2 }}>
+                                        {requestResponseError}
+                                    </Alert>
+                                )}
+                                {trackingError && (
+                                    <Alert severity="warning" sx={{ mb: 2 }}>
+                                        {trackingError}
+                                    </Alert>
+                                )}
+                                <Typography
+                                    variant={isMobile ? "h6" : "h6"}
+                                    gutterBottom
+                                >
+                                    Incoming Requests
+                                </Typography>
+                                {garageRequests.length === 0 ? (
+                                    <Typography
+                                        color="text.secondary"
+                                        sx={{
+                                            fontSize: {
+                                                xs: "0.875rem",
+                                                sm: "1rem",
+                                            },
+                                        }}
+                                    >
+                                        No incoming requests yet.
+                                    </Typography>
+                                ) : (
+                                    garageRequests.map((request) => {
+                                        const requestId =
+                                            request._id || request.requestId;
+                                        const requester =
+                                            request.requester || {};
+                                        return (
+                                            <Card
+                                                key={requestId}
+                                                variant="outlined"
+                                                sx={{ mb: 1.5 }}
+                                            >
+                                                <CardContent
+                                                    sx={{
+                                                        p: { xs: 1.5, sm: 2 },
+                                                        "&:last-child": {
+                                                            pb: {
+                                                                xs: 1.5,
+                                                                sm: 2,
+                                                            },
+                                                        },
+                                                    }}
+                                                >
+                                                    <Typography
+                                                        variant="subtitle1"
+                                                        fontWeight="bold"
+                                                    >
+                                                        {request.garageName}
+                                                    </Typography>
+                                                    <Typography variant="body2">
+                                                        {requester.fullName ||
+                                                            requester.username ||
+                                                            "Customer"}
+                                                        : {request.description}
+                                                    </Typography>
+                                                    {request.location
+                                                        ?.coordinates && (
+                                                        <Typography
+                                                            variant="caption"
+                                                            color="text.secondary"
+                                                        >
+                                                            Location:{" "}
+                                                            {request.location.coordinates[1].toFixed(
+                                                                4
+                                                            )}
+                                                            ,{" "}
+                                                            {request.location.coordinates[0].toFixed(
+                                                                4
+                                                            )}
+                                                        </Typography>
+                                                    )}
+                                                    {Array.isArray(
+                                                        request.location
+                                                    ) && (
+                                                        <Typography
+                                                            variant="caption"
+                                                            color="text.secondary"
+                                                        >
+                                                            Location:{" "}
+                                                            {request.location[1].toFixed(
+                                                                4
+                                                            )}
+                                                            ,{" "}
+                                                            {request.location[0].toFixed(
+                                                                4
+                                                            )}
+                                                        </Typography>
+                                                    )}
+                                                    {request.status ===
+                                                    "pending" ? (
+                                                        <Box
+                                                            sx={{
+                                                                display: "flex",
+                                                                flexWrap:
+                                                                    "wrap",
+                                                                alignItems:
+                                                                    "center",
+                                                                gap: 1,
+                                                                mt: 1.5,
+                                                            }}
+                                                        >
+                                                            <TextField
+                                                                label="ETA (minutes)"
+                                                                type="number"
+                                                                size="small"
+                                                                value={
+                                                                    requestEtas[
+                                                                        requestId
+                                                                    ] || 30
+                                                                }
+                                                                onChange={(
+                                                                    event
+                                                                ) =>
+                                                                    setRequestEtas(
+                                                                        (
+                                                                            current
+                                                                        ) => ({
+                                                                            ...current,
+                                                                            [requestId]:
+                                                                                event
+                                                                                    .target
+                                                                                    .value,
+                                                                        })
+                                                                    )
+                                                                }
+                                                                inputProps={{
+                                                                    min: 1,
+                                                                    max: 1440,
+                                                                }}
+                                                                disabled={
+                                                                    requestResponseLoading[
+                                                                        requestId
+                                                                    ]
+                                                                }
+                                                            />
+                                                            <Button
+                                                                variant="contained"
+                                                                size="small"
+                                                                disabled={
+                                                                    requestResponseLoading[
+                                                                        requestId
+                                                                    ]
+                                                                }
+                                                                onClick={() =>
+                                                                    handleGarageRequestResponse(
+                                                                        request,
+                                                                        "accepted"
+                                                                    )
+                                                                }
+                                                            >
+                                                                Accept & Send
+                                                                ETA
+                                                            </Button>
+                                                            <Button
+                                                                variant="outlined"
+                                                                color="error"
+                                                                size="small"
+                                                                disabled={
+                                                                    requestResponseLoading[
+                                                                        requestId
+                                                                    ]
+                                                                }
+                                                                onClick={() =>
+                                                                    handleGarageRequestResponse(
+                                                                        request,
+                                                                        "declined"
+                                                                    )
+                                                                }
+                                                            >
+                                                                Decline
+                                                            </Button>
+                                                        </Box>
+                                                    ) : request.status ===
+                                                      "accepted" ? (
+                                                        <Box
+                                                            sx={{
+                                                                display: "flex",
+                                                                flexWrap:
+                                                                    "wrap",
+                                                                alignItems:
+                                                                    "center",
+                                                                gap: 1,
+                                                                mt: 1.5,
+                                                            }}
+                                                        >
+                                                            <TextField
+                                                                label="ETA (minutes)"
+                                                                type="number"
+                                                                size="small"
+                                                                value={
+                                                                    requestEtas[
+                                                                        requestId
+                                                                    ] ??
+                                                                    request.estimatedArrivalMinutes
+                                                                }
+                                                                onChange={(
+                                                                    event
+                                                                ) =>
+                                                                    setRequestEtas(
+                                                                        (
+                                                                            current
+                                                                        ) => ({
+                                                                            ...current,
+                                                                            [requestId]:
+                                                                                event
+                                                                                    .target
+                                                                                    .value,
+                                                                        })
+                                                                    )
+                                                                }
+                                                                inputProps={{
+                                                                    min: 1,
+                                                                    max: 1440,
+                                                                }}
+                                                                disabled={
+                                                                    requestResponseLoading[
+                                                                        requestId
+                                                                    ]
+                                                                }
+                                                            />
+                                                            <Button
+                                                                variant="contained"
+                                                                size="small"
+                                                                disabled={
+                                                                    requestResponseLoading[
+                                                                        requestId
+                                                                    ]
+                                                                }
+                                                                onClick={() =>
+                                                                    handleGarageRequestResponse(
+                                                                        request,
+                                                                        "accepted"
+                                                                    )
+                                                                }
+                                                            >
+                                                                Update ETA
+                                                            </Button>
+                                                            <Chip
+                                                                color="success"
+                                                                size="small"
+                                                                label="Live location sharing on"
+                                                            />
+                                                            {request.location
+                                                                ?.coordinates && (
+                                                                <Button
+                                                                    variant="outlined"
+                                                                    color="primary"
+                                                                    size="small"
+                                                                    onClick={() => {
+                                                                        const coords =
+                                                                            request
+                                                                                .location
+                                                                                .coordinates;
+                                                                        const url = `https://www.google.com/maps/dir/?api=1&destination=${coords[1]},${coords[0]}`;
+                                                                        window.open(
+                                                                            url,
+                                                                            "_blank"
+                                                                        );
+                                                                    }}
+                                                                >
+                                                                    Navigate to
+                                                                    Customer
+                                                                </Button>
+                                                            )}
+                                                        </Box>
+                                                    ) : (
+                                                        <Chip
+                                                            sx={{ mt: 1.5 }}
+                                                            size="small"
+                                                            color={
+                                                                request.status ===
+                                                                "accepted"
+                                                                    ? "success"
+                                                                    : "default"
+                                                            }
+                                                            label={
+                                                                request.status ===
+                                                                "accepted"
+                                                                    ? `Accepted — ETA ${request.estimatedArrivalMinutes} min`
+                                                                    : request.status
+                                                            }
+                                                        />
+                                                    )}
+                                                </CardContent>
+                                            </Card>
+                                        );
+                                    })
+                                )}
+                                <Divider sx={{ my: 3 }} />
+                                <Typography
+                                    variant={isMobile ? "h6" : "h6"}
+                                    gutterBottom
+                                    sx={{
+                                        fontSize: {
+                                            xs: "1.25rem",
+                                            sm: "1.5rem",
+                                        },
+                                    }}
+                                >
+                                    Saved Garages
+                                </Typography>
+                                {garages.length === 0 && !loadingGarages ? (
+                                    <Typography
+                                        sx={{
+                                            fontSize: {
+                                                xs: "0.875rem",
+                                                sm: "1rem",
+                                            },
+                                        }}
+                                    >
+                                        No garages added yet.
+                                    </Typography>
+                                ) : loadingGarages ? (
+                                    <Typography
+                                        sx={{
+                                            fontSize: {
+                                                xs: "0.875rem",
+                                                sm: "1rem",
+                                            },
+                                        }}
+                                    >
+                                        Loading garages...
+                                    </Typography>
+                                ) : (
+                                    garages.map((garage, idx) => {
+                                        const ratings = garage.ratings || [];
+                                        const avgRating =
+                                            garage.averageRating !== undefined
+                                                ? garage.averageRating
+                                                : ratings.length > 0
+                                                  ? ratings.reduce(
+                                                        (sum, r) =>
+                                                            sum + r.value,
+                                                        0
+                                                    ) / ratings.length
+                                                  : 0;
+                                        return (
+                                            <Card
+                                                key={garage._id || idx}
+                                                elevation={3}
+                                                sx={{
+                                                    mb: 3,
+                                                    p: { xs: 1, sm: 2 },
+                                                    borderRadius: 3,
+                                                    boxShadow: 3,
+                                                }}
+                                            >
+                                                <CardContent
+                                                    sx={{ p: { xs: 1, sm: 2 } }}
+                                                >
+                                                    <Box
+                                                        sx={{
+                                                            display: "flex",
+                                                            alignItems:
+                                                                "center",
+                                                            justifyContent:
+                                                                "space-between",
+                                                        }}
+                                                    >
+                                                        <Box>
+                                                            <Typography
+                                                                variant={
+                                                                    isMobile
+                                                                        ? "h6"
+                                                                        : "h6"
+                                                                }
+                                                                sx={{
+                                                                    mb: 1,
+                                                                    fontSize: {
+                                                                        xs: "1.1rem",
+                                                                        sm: "1.25rem",
+                                                                    },
+                                                                }}
+                                                            >
+                                                                {garage.name}
+                                                            </Typography>
+                                                            <Box
+                                                                sx={{
+                                                                    display:
+                                                                        "flex",
+                                                                    alignItems:
+                                                                        "center",
+                                                                    mb: 1,
+                                                                }}
+                                                            >
+                                                                <LocationOn
+                                                                    fontSize="small"
+                                                                    sx={{
+                                                                        mr: 1,
+                                                                    }}
+                                                                />
+                                                                <Typography
+                                                                    variant="body2"
+                                                                    sx={{
+                                                                        fontSize:
+                                                                            {
+                                                                                xs: "0.75rem",
+                                                                                sm: "0.875rem",
+                                                                            },
+                                                                    }}
+                                                                >
+                                                                    Longitude:{" "}
+                                                                    {
+                                                                        garage
+                                                                            .location
+                                                                            .coordinates[0]
+                                                                    }
+                                                                    , Latitude:{" "}
+                                                                    {
+                                                                        garage
+                                                                            .location
+                                                                            .coordinates[1]
+                                                                    }
+                                                                </Typography>
+                                                            </Box>
+                                                            <Box
+                                                                sx={{
+                                                                    display:
+                                                                        "flex",
+                                                                    alignItems:
+                                                                        "center",
+                                                                    mb: 1,
+                                                                }}
+                                                            >
+                                                                <Typography
+                                                                    variant="body2"
+                                                                    sx={{
+                                                                        mr: 1,
+                                                                        fontSize:
+                                                                            {
+                                                                                xs: "0.75rem",
+                                                                                sm: "0.875rem",
+                                                                            },
+                                                                    }}
+                                                                >
+                                                                    Average
+                                                                    Rating:
+                                                                </Typography>
+                                                                <Rating
+                                                                    value={
+                                                                        avgRating
+                                                                    }
+                                                                    precision={
+                                                                        0.1
+                                                                    }
+                                                                    readOnly
+                                                                    size={
+                                                                        isMobile
+                                                                            ? "small"
+                                                                            : "small"
+                                                                    }
+                                                                />
+                                                                <Typography
+                                                                    variant="body2"
+                                                                    sx={{
+                                                                        ml: 1,
+                                                                        fontSize:
+                                                                            {
+                                                                                xs: "0.75rem",
+                                                                                sm: "0.875rem",
+                                                                            },
+                                                                    }}
+                                                                >
+                                                                    (
+                                                                    {avgRating.toFixed(
+                                                                        1
+                                                                    )}
+                                                                    ) (
+                                                                    {
+                                                                        ratings.length
+                                                                    }{" "}
+                                                                    {ratings.length ===
+                                                                    1
+                                                                        ? "rating"
+                                                                        : "ratings"}
+                                                                    )
+                                                                </Typography>
+                                                            </Box>
+                                                        </Box>
+                                                        <Button
+                                                            variant="outlined"
+                                                            color="error"
+                                                            size={
+                                                                isMobile
+                                                                    ? "small"
+                                                                    : "small"
+                                                            }
+                                                            disabled={
+                                                                deletingIndex ===
+                                                                idx
+                                                            }
+                                                            onClick={() =>
+                                                                handleDeleteGarage(
+                                                                    idx
+                                                                )
+                                                            }
+                                                            sx={{
+                                                                fontSize: {
+                                                                    xs: "0.75rem",
+                                                                    sm: "0.875rem",
+                                                                },
+                                                            }}
+                                                        >
+                                                            {deletingIndex ===
+                                                            idx
+                                                                ? "Deleting..."
+                                                                : "Delete"}
+                                                        </Button>
+                                                    </Box>
+                                                    <Divider sx={{ my: 2 }} />
+                                                </CardContent>
+                                            </Card>
+                                        );
+                                    })
+                                )}
+                            </CardContent>
+                        </Card>
+                    )}
+                </Grid>
+                <Grid item xs={12}>
+                    <Card elevation={2}>
+                        <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+                            <AIRoadsideAssistant />
+                        </CardContent>
+                    </Card>
+                </Grid>
+            </Grid>
+        </Box>
+    );
 };
 
 export default Dashboard;

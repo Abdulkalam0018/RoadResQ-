@@ -606,13 +606,17 @@ const Dashboard = () => {
                                         ? "success"
                                         : request.status === "declined"
                                           ? "error"
-                                          : "warning";
+                                          : request.status === "completed"
+                                            ? "info"
+                                            : "warning";
                                 const statusMessage =
                                     request.status === "accepted"
                                         ? `${mechanic.fullName || "The garage"} will provide aid in about ${request.estimatedArrivalMinutes} minutes.`
                                         : request.status === "declined"
                                           ? "This garage cannot take your request right now."
-                                          : "Your request has been sent. The garage is reviewing it.";
+                                          : request.status === "completed"
+                                            ? "Service request completed successfully."
+                                            : "Your request has been sent. The garage is reviewing it.";
 
                                 return (
                                     <Card
@@ -683,16 +687,19 @@ const Dashboard = () => {
                                                                 }
                                                             />
                                                             <Typography
-                                                                variant="caption"
-                                                                color="text.secondary"
+                                                                variant="subtitle2"
+                                                                color="primary.main"
                                                                 sx={{
                                                                     display:
                                                                         "block",
-                                                                    mt: 1,
+                                                                    mt: 1.5,
+                                                                    fontWeight:
+                                                                        "bold",
                                                                 }}
                                                             >
-                                                                Live position
-                                                                updated{" "}
+                                                                Last updated
+                                                                time of live
+                                                                location:{" "}
                                                                 {liveTracking.updatedAt
                                                                     ? new Date(
                                                                           liveTracking.updatedAt
@@ -1355,8 +1362,29 @@ const Dashboard = () => {
                                             <Card
                                                 key={requestId}
                                                 variant="outlined"
-                                                sx={{ mb: 1.5 }}
+                                                sx={{ mb: 1.5, position: "relative" }}
                                             >
+                                                {(request.status === "completed" || request.status === "declined") && (
+                                                    <Chip
+                                                        size="small"
+                                                        color={
+                                                            request.status === "completed"
+                                                                ? "info"
+                                                                : "error"
+                                                        }
+                                                        label={
+                                                            request.status === "completed"
+                                                                ? "Completed"
+                                                                : "Declined"
+                                                        }
+                                                        sx={{
+                                                            position: "absolute",
+                                                            top: 12,
+                                                            right: 12,
+                                                            zIndex: 1,
+                                                        }}
+                                                    />
+                                                )}
                                                 <CardContent
                                                     sx={{
                                                         p: { xs: 1.5, sm: 2 },
@@ -1562,11 +1590,6 @@ const Dashboard = () => {
                                                             >
                                                                 Update ETA
                                                             </Button>
-                                                            <Chip
-                                                                color="success"
-                                                                size="small"
-                                                                label="Live location sharing on"
-                                                            />
                                                             {request.location
                                                                 ?.coordinates && (
                                                                 <Button
@@ -1589,25 +1612,27 @@ const Dashboard = () => {
                                                                     Customer
                                                                 </Button>
                                                             )}
+                                                            <Button
+                                                                variant="contained"
+                                                                color="success"
+                                                                size="small"
+                                                                disabled={
+                                                                    requestResponseLoading[
+                                                                        requestId
+                                                                    ]
+                                                                }
+                                                                onClick={() =>
+                                                                    handleGarageRequestResponse(
+                                                                        request,
+                                                                        "completed"
+                                                                    )
+                                                                }
+                                                            >
+                                                                Mark as
+                                                                Completed
+                                                            </Button>
                                                         </Box>
-                                                    ) : (
-                                                        <Chip
-                                                            sx={{ mt: 1.5 }}
-                                                            size="small"
-                                                            color={
-                                                                request.status ===
-                                                                "accepted"
-                                                                    ? "success"
-                                                                    : "default"
-                                                            }
-                                                            label={
-                                                                request.status ===
-                                                                "accepted"
-                                                                    ? `Accepted — ETA ${request.estimatedArrivalMinutes} min`
-                                                                    : request.status
-                                                            }
-                                                        />
-                                                    )}
+                                                    ) : null}
                                                 </CardContent>
                                             </Card>
                                         );

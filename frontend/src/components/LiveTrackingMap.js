@@ -165,12 +165,11 @@ const LiveTrackingMap = ({ customerLocation, mechanicLocation }) => {
         {hasMechanic && (
           <Marker longitude={mechanicLocation[0]} latitude={mechanicLocation[1]} anchor="bottom">
             <Box sx={{ textAlign: 'center' }}>
-               <Navigation 
+               <LocationOn 
                  htmlColor="#1976d2" 
                  fontSize="large" 
                  sx={{ 
-                   filter: 'drop-shadow(0px 2px 2px rgba(0,0,0,0.3))',
-                   transform: 'rotate(45deg)' 
+                   filter: 'drop-shadow(0px 2px 2px rgba(0,0,0,0.3))'
                  }} 
                />
                <Typography variant="caption" display="block" sx={{ fontWeight: 'bold', backgroundColor: 'rgba(255,255,255,0.8)', borderRadius: 1, px: 0.5 }}>Mechanic</Typography>
